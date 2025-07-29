@@ -349,8 +349,32 @@ class MilvusManager:
                 return False
             return self.collection.num_entities > 0
         except Exception as e:
-            logger.warning(f"检查Milvus数据失败: {e}")
+            logger.error(f"检查Milvus数据失败: {e}")
             return False
+    
+    def has_collection(self) -> bool:
+        """检查集合是否存在"""
+        try:
+            from pymilvus import utility
+            collection_name = self.config["collection"]
+            return utility.has_collection(collection_name)
+        except Exception as e:
+            logger.error(f"检查Milvus集合失败: {e}")
+            return False
+    
+    def create_collection(self) -> None:
+        """创建集合（如果不存在）"""
+        try:
+            if not self.has_collection():
+                self._init_collection()
+                logger.info("Milvus集合创建成功")
+            else:
+                # 即使集合存在，也需要初始化连接
+                self._init_collection()
+                logger.info("Milvus集合已存在，完成初始化")
+        except Exception as e:
+            logger.error(f"创建Milvus集合失败: {e}")
+            raise
     
     def search_vectors(self, query_vector: List[float], top_k: int = 5) -> List[Dict]:
         """搜索相似向量"""

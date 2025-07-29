@@ -4,7 +4,7 @@
 app:
   name: "PDF智能文件管理系统"
   version: "1.0.0"
-  debug: true
+  debug: false  # 关闭debug模式，避免与PaddleOCR冲突
   host: "0.0.0.0"
   port: 8089
 
@@ -154,10 +154,14 @@ error_handling:
 # 开发和调试配置
 development:
   # 启用开发模式
-  debug_mode: true
+  debug_mode: false  # 改为false，避免与AI模型冲突
   # 详细日志
   verbose_logging: true
   # 性能分析
   profiling_enabled: true
-  # 模型预加载（开发时可能需要禁用）
+  # 模型预加载（开发时建议禁用，避免debug冲突）
   preload_models: true
+  # 开发环境特殊设置
+  dev_mode_safe: true  # 启用开发安全模式，禁用可能冲突的功能
+  # 暂时跳过图像OCR以避免卡住（调试用）
+  skip_image_ocr: true  # 临时启用，确保PDF处理流程正常

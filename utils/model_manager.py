@@ -444,6 +444,50 @@ class ModelManager:
             logger.error(f"批量生成嵌入向量失败: {e}")
             raise
     
+    def extract_text_from_image(self, image_path: str) -> List[Dict[str, Any]]:
+        """
+        从图像中提取文本（OCR）
+        
+        Args:
+            image_path: 图像文件路径
+            
+        Returns:
+            OCR结果列表
+        """
+        try:
+            # 加载OCR模型
+            ocr = self.load_ocr_model()
+            if ocr is None:
+                logger.warning("OCR模型加载失败，跳过图像文字提取")
+                return []
+            
+            # 执行OCR
+            results = ocr.ocr(image_path, cls=True)
+            
+            # 解析结果
+            ocr_results = []
+            if results and results[0]:
+                for line in results[0]:
+                    if len(line) >= 2:
+                        bbox = line[0]  # 边界框
+                        text_info = line[1]  # 文字信息
+                        if text_info and len(text_info) >= 2:
+                            text = text_info[0]  # 文字内容
+                            confidence = text_info[1]  # 置信度
+                            
+                            ocr_results.append({
+                                "text": text,
+                                "confidence": confidence,
+                                "bbox": bbox
+                            })
+            
+            logger.debug(f"OCR提取完成: {len(ocr_results)}个文本块")
+            return ocr_results
+            
+        except Exception as e:
+            logger.error(f"OCR文字提取失败: {e}")
+            return []
+    
     def get_model_stats(self) -> Dict[str, Any]:
         """获取模型使用统计"""
         return {
@@ -461,27 +505,43 @@ class ModelManager:
         Args:
             model_types: 要预加载的模型类型列表，None表示预加载所有
         """
-        if not self.adaptive_settings["preload_models"]:
+        # 检查配置文件中的预加载设置
+        from utils.config_loader import config_loader
+        app_config = config_loader.get_app_config()
+        dev_config = app_config.get("development", {})
+        config_preload_enabled = dev_config.get("preload_models", False)
+        
+        # 检查自适应设置中的预加载
+        adaptive_preload_enabled = self.adaptive_settings.get("preload_models", False)
+        
+        # 只要任一配置启用预加载就执行（优先配置文件）
+        preload_enabled = config_preload_enabled or adaptive_preload_enabled
+        
+        if not preload_enabled:
             logger.debug("预加载已禁用，跳过模型预加载")
             return
         
         if model_types is None:
             model_types = ["embedding", "ocr"]
         
-        logger.info(f"开始预加载模型: {model_types}")
+        logger.info(f"🚀 开始预加载模型: {model_types}")
+        logger.info(f"预加载原因: 配置文件={config_preload_enabled}, 自适应设置={adaptive_preload_enabled}")
         
         for model_type in model_types:
             try:
+                logger.info(f"📥 正在预加载 {model_type} 模型...")
                 if model_type == "embedding":
                     self.load_embedding_model()
+                    logger.info(f"✅ {model_type} 模型预加载完成")
                 elif model_type == "ocr":
                     self.load_ocr_model()
+                    logger.info(f"✅ {model_type} 模型预加载完成")
                 else:
                     logger.warning(f"未知的模型类型: {model_type}")
             except Exception as e:
-                logger.error(f"预加载模型失败 {model_type}: {e}")
+                logger.error(f"❌ 预加载模型失败 {model_type}: {e}")
         
-        logger.info("模型预加载完成")
+        logger.info("🎉 所有模型预加载完成！")
     
     def cleanup(self) -> None:
         """清理资源"""
