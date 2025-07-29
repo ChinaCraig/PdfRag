@@ -1,0 +1,49 @@
+# 项目全局配置文件
+
+# 应用配置
+app:
+  name: "PDF智能文件管理系统"
+  version: "1.0.0"
+  debug: true
+  host: "0.0.0.0"
+  port: 8088
+
+# 文件上传配置
+upload:
+  # 文件保存目录
+  upload_dir: "uploads"
+  # 允许的文件扩展名
+  allowed_extensions: [".pdf"]
+  # 最大文件大小 (MB)
+  max_file_size: 100
+  
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/app.log"
+  
+# GraphRAG配置
+graph_rag:
+  # 文本块大小
+  chunk_size: 1000
+  # 文本块重叠
+  chunk_overlap: 200
+  # 实体提取阈值
+  entity_threshold: 0.8
+  # 关系提取阈值
+  relation_threshold: 0.7
+  
+# 向量检索配置
+vector_search:
+  # 检索结果数量
+  top_k: 5
+  # 相似度阈值
+  similarity_threshold: 0.7
+  
+# 图检索配置
+graph_search:
+  # 最大跳数
+  max_hops: 3
+  # 路径数量限制
+  max_paths: 10 

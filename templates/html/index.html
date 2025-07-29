@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF智能文件管理系统</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <i class="fas fa-file-pdf"></i>
+                <span>PDF智能文件管理系统</span>
+            </div>
+            <div class="header-actions">
+                <button class="btn-secondary" onclick="showHelp()">
+                    <i class="fas fa-question-circle"></i>
+                    帮助
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <nav class="sidebar-nav">
+                <ul class="nav-list">
+                    <li class="nav-item">
+                        <a href="#" class="nav-link active" data-page="file-management">
+                            <i class="fas fa-folder"></i>
+                            <span>文件管理</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link" data-page="smart-search">
+                            <i class="fas fa-search"></i>
+                            <span>智能检索</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- 主内容区域 -->
+        <main class="main-content">
+            <!-- 文件管理页面 -->
+            <div id="file-management" class="page-content active">
+                <div class="page-header">
+                    <h2>文件管理</h2>
+                    <p class="page-description">上传和管理您的PDF文件，系统将自动解析文件内容</p>
+                </div>
+
+                <!-- 文件上传区域 -->
+                <div class="upload-section">
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-content">
+                            <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                            <h3>拖拽或点击上传PDF文件</h3>
+                            <p>支持PDF格式，最大100MB</p>
+                            <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+                                                    <button class="btn-primary" onclick="triggerFileSelect()">
+                            选择文件
+                        </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 文件列表 -->
+                <div class="file-list-section">
+                    <div class="section-header">
+                        <h3>文件列表</h3>
+                        <button class="btn-secondary" onclick="refreshFileList()">
+                            <i class="fas fa-sync-alt"></i>
+                            刷新
+                        </button>
+                    </div>
+                    <div class="file-list" id="fileList">
+                        <!-- 文件列表将通过JavaScript动态加载 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 智能检索页面 -->
+            <div id="smart-search" class="page-content">
+                <div class="page-header">
+                    <h2>智能检索</h2>
+                    <p class="page-description">基于文档内容进行智能问答，支持多轮对话</p>
+                </div>
+
+                <!-- 聊天界面 -->
+                <div class="chat-container">
+                    <!-- 聊天消息区域 -->
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="welcome-message">
+                            <div class="assistant-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="message-content">
+                                <p>您好！我是PDF智能助手，可以帮您分析和检索已上传的PDF文档内容。请输入您的问题。</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 输入区域 -->
+                    <div class="chat-input-area">
+                        <div class="input-container">
+                            <textarea 
+                                id="chatInput" 
+                                placeholder="输入您的问题..."
+                                rows="1"
+                                maxlength="1000"
+                            ></textarea>
+                            <button id="sendButton" class="send-button" onclick="sendMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        <div class="input-actions">
+                            <button class="btn-link" onclick="clearChat()">
+                                <i class="fas fa-trash"></i>
+                                清空对话
+                            </button>
+                            <span class="char-count">
+                                <span id="charCount">0</span>/1000
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 模态框 -->
+    <!-- 文件详情模态框 -->
+    <div id="fileDetailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>文件详情</h3>
+                <span class="close" onclick="closeModal('fileDetailModal')">&times;</span>
+            </div>
+            <div class="modal-body" id="fileDetailContent">
+                <!-- 文件详情内容 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 重命名模态框 -->
+    <div id="renameModal" class="modal">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h3>重命名文件</h3>
+                <span class="close" onclick="closeModal('renameModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="newFileName" placeholder="输入新文件名" class="form-input">
+                <div class="modal-actions">
+                    <button class="btn-secondary" onclick="closeModal('renameModal')">取消</button>
+                    <button class="btn-primary" onclick="confirmRename()">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 帮助模态框 -->
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>使用帮助</h3>
+                <span class="close" onclick="closeModal('helpModal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="help-content">
+                    <h4>文件管理</h4>
+                    <ul>
+                        <li>支持上传PDF格式文件，最大100MB</li>
+                        <li>支持拖拽上传或点击选择文件</li>
+                        <li>文件上传后会自动解析内容，提取文字、表格、图片等</li>
+                        <li>可以重命名或删除已上传的文件</li>
+                    </ul>
+                    
+                    <h4>智能检索</h4>
+                    <ul>
+                        <li>基于已上传的PDF文档内容进行智能问答</li>
+                        <li>支持多轮对话，可以进行连续提问</li>
+                        <li>系统会从文档中检索相关信息并生成回答</li>
+                        <li>支持文字、表格、图片等多种内容类型的检索</li>
+                    </ul>
+                    
+                    <h4>技术特性</h4>
+                    <ul>
+                        <li>基于GraphRAG技术，提供更准确的检索结果</li>
+                        <li>支持向量检索和图谱检索的混合模式</li>
+                        <li>实体关系提取，构建文档知识图谱</li>
+                        <li>流式输出，实时显示分析结果</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载动画 -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>处理中...</p>
+        </div>
+    </div>
+
+    <!-- 通知消息 -->
+    <div id="notification" class="notification">
+        <div class="notification-content">
+            <span id="notificationMessage"></span>
+            <button class="notification-close" onclick="hideNotification()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- JavaScript文件 -->
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/fileManager.js"></script>
+    <script src="/static/js/chatInterface.js"></script>
+</body>
+</html> 

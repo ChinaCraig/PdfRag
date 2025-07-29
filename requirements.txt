@@ -1,0 +1,51 @@
+# PDF智能文件管理系统依赖包
+
+# Web框架
+Flask==2.3.3
+Flask-CORS==4.0.0
+
+# 数据库相关
+PyMySQL==1.1.0
+pymilvus==2.5.14
+neo4j==5.13.0
+
+# PDF处理
+PyMuPDF==1.23.8
+
+# 图像处理
+Pillow==10.0.1
+
+# OCR和NLP模型
+paddleocr==2.7.3
+paddlepaddle==2.5.2
+sentence-transformers==2.2.2
+transformers==4.35.0
+
+# 机器学习
+torch==2.1.0
+torchvision==0.16.0
+numpy==1.24.3
+pandas==2.1.1
+
+# HTTP请求
+requests==2.31.0
+
+# 配置文件处理
+PyYAML==6.0.1
+
+# 日志
+loguru==0.7.2
+
+# 工具库
+tqdm==4.66.1
+click==8.1.7
+
+# 安全
+Werkzeug==2.3.7
+
+# 异步处理
+celery==5.3.4
+redis==5.0.1
+
+# 开发工具（可选）
+python-dotenv==1.0.0 

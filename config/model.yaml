@@ -1,0 +1,57 @@
+# 模型配置文件 - 管理项目中使用的所有模型
+
+# 全局GPU加速开关，true为启用GPU，false为使用CPU
+gpu_acceleration: false
+
+# 大语言模型配置 - 使用DeepSeek API
+llm:
+  type: "deepseek"
+  api_url: "https://api.deepseek.com"
+  api_key: "sk-27e712e3a6c64533884adc0ad040ff3b"
+  model_name: "deepseek-chat"
+  max_tokens: 4096
+  temperature: 0.7
+
+# 嵌入模型配置 - 384维本地模型
+embedding:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"  # 384维嵌入模型
+  model_path: "models/embedding"
+  dimensions: 384
+  max_length: 512
+  
+# OCR模型配置 - 本地模型
+ocr:
+  model_name: "paddleocr"
+  model_path: "models/ocr"
+  language: ["ch", "en"]  # 支持中英文
+  use_angle_cls: true
+  use_gpu: false  # 由gpu_acceleration全局控制
+  
+# 表格检测模型
+table_detection:
+  model_name: "table-transformer-detection"
+  model_path: "models/table_detection"
+  
+# 图像分析模型
+image_analysis:
+  model_name: "blip2"
+  model_path: "models/image_analysis"
+  
+# 图表识别模型
+chart_recognition:
+  model_name: "chart2text"
+  model_path: "models/chart_recognition"
+  
+# 模型下载地址配置
+model_downloads:
+  embedding:
+    url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
+  ocr:
+    # PaddleOCR会自动下载模型
+    auto_download: true
+  table_detection:
+    url: "https://huggingface.co/microsoft/table-transformer-detection"
+  image_analysis:
+    url: "https://huggingface.co/Salesforce/blip2-opt-2.7b"
+  chart_recognition:
+    url: "https://huggingface.co/chart2text/chart2text" 
