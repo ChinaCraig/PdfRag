@@ -9,15 +9,27 @@ from flask_cors import CORS
 
 from utils.config_loader import config_loader
 from utils.environment_checker import environment_checker
+from utils.performance_profiler import performance_profiler
 from app.routes.FileRoutes import file_bp
 from app.routes.SearchRoutes import search_bp
 
 # 配置日志
 def setup_logging():
     """设置日志配置"""
-    log_config = config_loader.get_app_config().get("logging", {})
+    app_config = config_loader.get_app_config()
+    log_config = app_config.get("logging", {})
+    dev_config = app_config.get("development", {})
     
-    log_level = getattr(logging, log_config.get("level", "INFO").upper())
+    # 基础日志级别
+    base_level = log_config.get("level", "INFO").upper()
+    
+    # 如果启用了详细日志，将级别设为DEBUG
+    if dev_config.get("verbose_logging", False):
+        log_level = logging.DEBUG
+        print("🔍 详细日志已启用 (DEBUG级别)")
+    else:
+        log_level = getattr(logging, base_level)
+    
     log_format = log_config.get("format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     log_file = log_config.get("file", "logs/app.log")
     
@@ -175,15 +187,30 @@ def main():
                 
                 logger.info("资源管理器初始化完成")
                 
-                # 可选：预加载模型（根据硬件性能决定）
+                # 可选：预加载模型（检查配置和硬件性能）
+                app_config = config_loader.get_app_config()
+                dev_config = app_config.get("development", {})
                 performance_score = hardware_info.get("performance_score", 50)
-                if performance_score > 70 and recommended_config.get("preload_models", False):
-                    logger.info("系统性能良好，开始预加载模型...")
+                
+                # 检查是否启用了模型预加载
+                preload_enabled = dev_config.get("preload_models", False)
+                
+                if preload_enabled:
+                    logger.info("🚀 配置启用了模型预加载，开始下载模型...")
+                    print("🚀 模型预加载已启用，正在下载必需模型...")
                     try:
-                        model_manager.preload_models(["embedding"])
-                        logger.info("模型预加载完成")
+                        # 强制预加载嵌入模型和OCR模型
+                        model_manager.adaptive_settings["preload_models"] = True
+                        model_manager.preload_models(["embedding", "ocr"])
+                        logger.info("✅ 模型预加载完成")
+                        print("✅ 模型预加载完成！")
                     except Exception as e:
-                        logger.warning(f"模型预加载失败: {e}")
+                        logger.warning(f"⚠️ 模型预加载失败: {e}")
+                        print(f"⚠️ 模型预加载失败: {e}")
+                elif performance_score > 70:
+                    logger.info("🔄 系统性能良好，但未启用模型预加载（可在config.yaml中设置development.preload_models: true启用）")
+                else:
+                    logger.info("⏳ 模型将在首次使用时自动下载")
                 
             except Exception as e:
                 logger.error(f"资源管理器初始化失败: {e}")
@@ -234,6 +261,7 @@ def main():
                 logger.info("正在清理资源...")
                 resource_manager.shutdown()
                 model_manager.cleanup()
+                performance_profiler.cleanup()
                 logger.info("资源清理完成")
             except Exception as e:
                 logger.warning(f"资源清理时出现错误: {e}")

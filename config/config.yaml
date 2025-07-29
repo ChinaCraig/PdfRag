@@ -6,7 +6,7 @@ app:
   version: "1.0.0"
   debug: true
   host: "0.0.0.0"
-  port: 8088
+  port: 8089
 
 # 文件上传配置
 upload:
@@ -156,8 +156,8 @@ development:
   # 启用开发模式
   debug_mode: true
   # 详细日志
-  verbose_logging: false
+  verbose_logging: true
   # 性能分析
-  profiling_enabled: false
+  profiling_enabled: true
   # 模型预加载（开发时可能需要禁用）
-  preload_models: false 
+  preload_models: true

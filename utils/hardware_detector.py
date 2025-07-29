@@ -341,7 +341,8 @@ class HardwareDetector:
             "batch_size": 1,
             "max_workers": 1,
             "model_cache_enabled": True,
-            "processing_mode": "conservative"  # conservative, balanced, aggressive
+            "processing_mode": "conservative",  # conservative, balanced, aggressive
+            "preload_models": False  # 添加预加载模型配置
         }
         
         try:
@@ -374,6 +375,12 @@ class HardwareDetector:
                     max_gpu_memory = max([gpu.get("memory_total_gb", 0) for gpu in gpus])
                     if max_gpu_memory >= 4:  # 至少4GB显存才建议启用GPU
                         config["gpu_acceleration"] = True
+            
+            # 根据性能和内存情况决定是否建议预加载模型
+            if self.performance_score >= 60 and total_memory >= 8:
+                config["preload_models"] = True
+            
+            logger.debug(f"硬件推荐配置: {config}")
             
             # 内存配置
             if total_memory < 8:
