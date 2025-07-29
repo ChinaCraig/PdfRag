@@ -243,6 +243,7 @@ class MilvusManager:
     def __init__(self):
         self.collection = None
         self.config = config_loader.get_db_config()["milvus"]
+        self.model_config = config_loader.get_model_config()["embedding"]
     
     def connect(self) -> None:
         """连接到Milvus数据库"""
@@ -274,13 +275,14 @@ class MilvusManager:
             # 使用指定数据库
             db.using_database(database_name)
             
-            # 定义集合schema
+            # 定义集合schema，从配置文件读取向量维度
+            embedding_dim = self.model_config["dimensions"]
             fields = [
                 FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
                 FieldSchema(name="file_id", dtype=DataType.VARCHAR, max_length=255),
                 FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=255),
                 FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),
+                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=embedding_dim),
                 FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=65535)
             ]
             
@@ -302,17 +304,17 @@ class MilvusManager:
                         break
                 
                 # 如果维度不匹配，删除旧集合
-                if existing_embedding_field and existing_embedding_field.params.get('dim') != 384:
-                    logger.info(f"Milvus集合维度不匹配，删除旧集合: {collection_name}")
+                if existing_embedding_field and existing_embedding_field.params.get('dim') != embedding_dim:
+                    logger.info(f"Milvus集合维度不匹配({existing_embedding_field.params.get('dim')} != {embedding_dim})，删除旧集合: {collection_name}")
                     utility.drop_collection(collection_name)
                     self.collection = Collection(collection_name, schema)
-                    logger.info(f"重新创建Milvus集合: {collection_name}")
+                    logger.info(f"重新创建Milvus集合: {collection_name} (维度: {embedding_dim})")
                 else:
                     self.collection = existing_collection
-                    logger.info(f"Milvus集合已存在且维度正确: {collection_name}")
+                    logger.info(f"Milvus集合已存在且维度正确: {collection_name} (维度: {embedding_dim})")
             else:
                 self.collection = Collection(collection_name, schema)
-                logger.info(f"创建Milvus集合: {collection_name}")
+                logger.info(f"创建Milvus集合: {collection_name} (维度: {embedding_dim})")
             
             # 创建索引
             index_params = {

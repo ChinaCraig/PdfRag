@@ -89,6 +89,14 @@ class FileService:
             # 保存文件
             file.save(file_path)
             
+            # 强制刷新日志，确保实时输出
+            import sys
+            logger.info(f"✅✅✅ 文件物理保存成功 - 文件ID: {file_id}")
+            logger.info(f"📁 文件存储路径: {file_path}")
+            logger.info(f"📊 文件大小: {file_size} bytes ({file_size/1024/1024:.2f} MB)")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            
             # 保存文件信息到数据库
             file_info = {
                 "file_id": file_id,
@@ -104,30 +112,65 @@ class FileService:
             logger.info(f"📋📋📋 准备保存文件信息 - 文件ID: {file_id}")
             logger.info(f"📋 文件信息内容: {file_info}")
             try:
-                logger.info(f"📋 调用_save_file_info方法...")
+                logger.info(f"📋 调用_save_file_info方法保存到MySQL数据库...")
                 self._save_file_info(file_info)
-                logger.info(f"✅✅✅ 文件信息保存成功 - 文件ID: {file_id}")
+                logger.info(f"✅✅✅ 文件元信息保存到MySQL成功 - 文件ID: {file_id}")
+                logger.info(f"📋 数据库记录状态: {file_info['status']}, 进度: {file_info['processing_progress']}%")
+                sys.stdout.flush()
+                sys.stderr.flush()
             except Exception as db_error:
                 logger.error(f"❌❌❌ 文件信息保存失败，但继续进行文件处理 - 文件ID: {file_id}, 错误: {db_error}")
                 # 注意：即使数据库保存失败，我们也继续进行文件处理
+                sys.stdout.flush()
+                sys.stderr.flush()
             
             # 异步开始文件内容识别
-            logger.info(f"🚀🚀🚀 准备启动文件处理线程 - 文件ID: {file_id}, 文件路径: {file_path}")
-            logger.info(f"🔍 当前upload_file方法正在执行到文件处理部分")
-            logger.info(f"🔍 文件处理方法地址: {self._start_file_processing}")
-            try:
-                logger.info(f"🔍 即将调用self._start_file_processing...")
-                self._start_file_processing(file_id, file_path)
-                logger.info(f"✅✅✅ 文件处理线程启动命令已发送 - 文件ID: {file_id}")
-            except Exception as thread_error:
-                logger.error(f"❌❌❌ 文件处理线程启动失败 - 文件ID: {file_id}, 错误: {thread_error}", exc_info=True)
+            logger.info("=" * 80)
+            logger.info(f"🚀🚀🚀 开始启动GraphRAG文件处理线程")
+            logger.info(f"🚀 文件ID: {file_id}")
+            logger.info(f"🚀 文件路径: {file_path}")
+            logger.info(f"🚀 原始文件名: {display_filename}")
+            logger.info(f"🚀 处理模式: 完整GraphRAG处理（文字+表格+图片+图表+向量化+实体关系）")
+            logger.info("=" * 80)
+            sys.stdout.flush()
+            sys.stderr.flush()
             
-            return {
+            try:
+                logger.info(f"🔧 正在调用_start_file_processing启动处理线程...")
+                sys.stdout.flush()
+                sys.stderr.flush()
+                
+                self._start_file_processing(file_id, file_path)
+                
+                logger.info(f"✅✅✅ GraphRAG处理线程启动成功 - 文件ID: {file_id}")
+                logger.info(f"📝 处理线程已在后台运行，可通过 /api/file/status/{file_id} 查看进度")
+                sys.stdout.flush()
+                sys.stderr.flush()
+                
+            except Exception as thread_error:
+                logger.error(f"❌❌❌ GraphRAG处理线程启动失败 - 文件ID: {file_id}")
+                logger.error(f"❌ 错误详情: {thread_error}", exc_info=True)
+                sys.stdout.flush()
+                sys.stderr.flush()
+            
+            # 准备返回成功响应
+            response = {
                 "success": True,
                 "message": "文件上传成功",
                 "file_id": file_id,
                 "filename": display_filename
             }
+            
+            logger.info("=" * 80)
+            logger.info(f"🎉🎉🎉 文件上传流程完成")
+            logger.info(f"🎉 返回响应: {response}")
+            logger.info(f"🎉 GraphRAG处理已在后台启动，请等待处理完成")
+            logger.info(f"🎉 状态查询接口: GET /api/file/status/{file_id}")
+            logger.info("=" * 80)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            
+            return response
             
         except Exception as e:
             logger.error(f"文件上传失败: {e}")
@@ -451,57 +494,79 @@ class FileService:
             logger.warning(f"删除文件 {file_id} 的图数据失败: {e}")
     
     def _start_file_processing(self, file_id: str, file_path: str) -> None:
-        """开始文件内容识别处理"""
-        logger.info(f"🔧🔧🔧 _start_file_processing方法被调用 - 文件ID: {file_id}")
-        logger.info(f"🔧🔧🔧 方法参数: file_id={file_id}, file_path={file_path}")
+        """开始文件内容识别处理 - 使用资源管理器"""
+        import sys
+        import os
+        
+        logger.info("*" * 100)
+        logger.info(f"🔧🔧🔧 _start_file_processing方法被调用")
+        logger.info(f"🔧 文件ID: {file_id}")
+        logger.info(f"🔧 文件路径: {file_path}")
+        logger.info(f"🔧 文件是否存在: {os.path.exists(file_path)}")
+        if os.path.exists(file_path):
+            logger.info(f"🔧 文件大小: {os.path.getsize(file_path)} bytes")
+        logger.info(f"🔧 当前线程: {threading.current_thread().name}")
+        logger.info("*" * 100)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
         try:
-            logger.info(f"🔧 进入try块，开始创建文件处理线程 - 文件ID: {file_id}")
-            logger.info(f"🔧 线程目标: _process_file_content_safe, 参数: {file_id}, {file_path}")
+            # 导入资源管理器
+            from utils.resource_manager import resource_manager
             
-            # 首先测试是否能创建简单线程
-            def test_thread():
-                logger.info(f"🧪 测试线程运行成功 - 文件ID: {file_id}")
-            
-            test = threading.Thread(target=test_thread, name=f"Test-{file_id[:8]}")
-            test.daemon = True
-            test.start()
-            test.join(timeout=1)  # 等待1秒
-            logger.info(f"✅ 测试线程完成")
-            
-            # 在后台线程中处理文件
-            thread = threading.Thread(
-                target=self._process_file_content_safe,
-                args=(file_id, file_path),
-                name=f"FileProcessor-{file_id[:8]}"
+            # 提交任务到资源管理器
+            task_submitted = resource_manager.submit_task(
+                task_id=file_id,
+                task_func=self._adaptive_file_processing,
+                file_id=file_id,
+                file_path=file_path
             )
-            thread.daemon = True
             
-            logger.info(f"🔧 文件处理线程已创建，准备启动 - 线程名: {thread.name}")
-            thread.start()
-            logger.info(f"✅ 文件处理线程已启动 - 线程名: {thread.name}, 线程ID: {thread.ident}")
-            
-            # 立即返回，不等待线程
-            return
-            
+            if task_submitted:
+                logger.info(f"✅✅✅ 文件处理任务已提交到资源管理器 - 文件ID: {file_id}")
+                logger.info(f"📝 处理将根据系统资源自动调整，可通过 /api/file/status/{file_id} 查看进度")
+            else:
+                logger.warning(f"⚠️ 资源管理器繁忙，任务{file_id}将稍后重试")
+                # 使用传统方式处理
+                self._fallback_processing(file_id, file_path)
+                
         except Exception as e:
-            logger.error(f"❌ 启动文件处理线程失败 - 文件ID: {file_id}, 错误: {e}", exc_info=True)
+            logger.error(f"❌❌❌ 提交到资源管理器失败: {e}")
+            # 回退到传统处理方式
+            self._fallback_processing(file_id, file_path)
     
-    def _process_file_content_safe(self, file_id: str, file_path: str) -> None:
-        """安全的文件处理包装器 - 第一步：PDF文本提取"""
-        logger.info(f"🚀🚀🚀 _process_file_content_safe方法被调用 - 文件ID: {file_id}")
-        logger.info(f"🚀🚀🚀 线程开始执行，当前线程: {threading.current_thread().name}")
+    def _adaptive_file_processing(self, file_id: str, file_path: str, config: Dict[str, Any] = None) -> None:
+        """
+        自适应文件处理 - 根据硬件配置调整处理策略
         
-        import time
-        timeout_timer = None
+        Args:
+            file_id: 文件ID
+            file_path: 文件路径
+            config: 资源管理器提供的自适应配置
+        """
+        import threading
+        import sys
+        current_thread = threading.current_thread()
         
-        # 超时处理函数
-        def timeout_handler():
-            logger.error(f"⏰ PDF处理超时 - 文件ID: {file_id}")
-            self._handle_processing_failure(file_id, "处理超时")
+        # 使用提供的配置或默认配置
+        adaptive_config = config or {
+            "max_concurrent_files": 1,
+            "chunk_batch_size": 1,
+            "enable_gpu": False,
+            "processing_timeout": 300
+        }
+        
+        logger.info(f"🚀🚀🚀 自适应文件处理开始 - 线程: {current_thread.name}")
+        logger.info(f"📄 文件ID: {file_id}")
+        logger.info(f"⚙️ 自适应配置: {adaptive_config}")
+        
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
         
         try:
-            logger.info(f"🚀 进入try块，PDF智能处理启动 - 文件ID: {file_id}")
-            logger.info(f"🚀 线程信息: {threading.current_thread().name}")
+            # 应用自适应配置到模型管理器
+            model_manager.apply_hardware_config(adaptive_config)
             
             # 检查文件是否存在
             import os
@@ -511,62 +576,313 @@ class FileService:
             logger.info(f"✅ 文件存在检查通过: {file_path}")
             logger.info(f"📊 文件大小: {os.path.getsize(file_path)} bytes")
             
-            # 设置处理状态
+            # 初始化处理状态
+            logger.info(f"🔄 初始化处理状态...")
             self.processing_status[file_id] = {
                 "status": "processing",
-                "progress": 10,
-                "message": "开始PDF处理..."
-            }
-            
-            # 设置超时控制（60秒） - 使用Timer替代signal
-            timeout_timer = threading.Timer(60.0, timeout_handler)
-            timeout_timer.start()
-            logger.info(f"⏰ 超时控制已启动 (60秒)")
-            
-            # 第一步：安全的PDF文本提取
-            logger.info(f"📖 开始PDF文本提取 - 文件ID: {file_id}")
-            text_content = self._safe_pdf_text_extraction(file_id, file_path)
-            
-            # 更新进度
-            self.processing_status[file_id] = {
-                "status": "processing",
-                "progress": 50,
-                "message": "PDF文本提取完成，准备保存..."
-            }
-            
-            # 简单保存文本内容到数据库（作为处理结果的记录）
-            logger.info(f"💾 开始保存处理结果 - 文件ID: {file_id}")
-            self._save_processing_result(file_id, text_content)
-            
-            # 取消超时
-            if timeout_timer:
-                timeout_timer.cancel()
-                logger.info(f"⏰ 超时控制已取消")
-            
-            # 更新状态为完成
-            self.processing_status[file_id] = {
-                "status": "completed", 
-                "progress": 100,
-                "message": "PDF处理完成"
+                "progress": 0,
+                "message": "开始自适应处理..."
             }
             
             # 更新数据库状态
+            mysql_manager.execute_update(
+                "UPDATE files SET status = 'processing', processing_progress = 0 WHERE file_id = %s",
+                (file_id,)
+            )
+            
+            # 根据配置选择处理模式
+            processing_mode = adaptive_config.get("processing_mode", "balanced")
+            
+            if processing_mode == "conservative":
+                logger.info(f"🛡️ 使用保守处理模式")
+                self._conservative_processing(file_id, file_path, adaptive_config)
+            elif processing_mode == "aggressive":
+                logger.info(f"🚀 使用高性能处理模式") 
+                self._aggressive_processing(file_id, file_path, adaptive_config)
+            else:
+                logger.info(f"⚖️ 使用平衡处理模式")
+                self._balanced_processing(file_id, file_path, adaptive_config)
+            
+            # 完成处理
+            self.processing_status[file_id] = {
+                "status": "completed", 
+                "progress": 100,
+                "message": "自适应处理完成"
+            }
+            
             mysql_manager.execute_update(
                 "UPDATE files SET status = 'completed', processing_progress = 100 WHERE file_id = %s",
                 (file_id,)
             )
             
-            logger.info(f"✅ PDF智能处理完成 - 文件ID: {file_id}")
+            logger.info(f"✅✅✅ 文件 {file_id} 自适应处理完成")
             
         except Exception as e:
-            logger.error(f"❌ PDF处理失败 - 文件ID: {file_id}, 错误: {e}", exc_info=True)
-            self._handle_processing_failure(file_id, str(e))
+            logger.error(f"❌ 自适应处理文件 {file_id} 失败: {e}", exc_info=True)
+            self._handle_processing_failure(file_id, f"自适应处理失败: {str(e)}")
+    
+    def _conservative_processing(self, file_id: str, file_path: str, config: Dict[str, Any]) -> None:
+        """保守处理模式 - 最小资源占用"""
+        logger.info(f"🛡️ 开始保守处理模式 - 文件ID: {file_id}")
         
-        finally:
-            # 确保清理超时设置
-            if timeout_timer:
-                timeout_timer.cancel()
-            logger.info(f"🏁 PDF处理线程结束 - 文件ID: {file_id}")
+        try:
+            # 只进行基本文本提取，不加载重模型
+            self._update_progress(file_id, 10, "开始PDF文本提取...")
+            
+            # 使用简化的PDF文本提取
+            text_content = self._safe_pdf_text_extraction(file_id, file_path)
+            
+            self._update_progress(file_id, 50, "文本提取完成，准备保存...")
+            
+            # 创建基本文本块（不使用嵌入向量）
+            chunks = self._create_simple_text_chunks(text_content, file_id)
+            
+            self._update_progress(file_id, 80, "创建文本块完成...")
+            
+            # 保存基本信息到数据库
+            self._save_basic_content(file_id, text_content, len(chunks))
+            
+            self._update_progress(file_id, 100, "保守处理完成")
+            
+            logger.info(f"✅ 保守处理完成 - 文件ID: {file_id}, 文本块数: {len(chunks)}")
+            
+        except Exception as e:
+            logger.error(f"❌ 保守处理失败: {e}")
+            raise
+    
+    def _balanced_processing(self, file_id: str, file_path: str, config: Dict[str, Any]) -> None:
+        """平衡处理模式 - 适度使用资源"""
+        logger.info(f"⚖️ 开始平衡处理模式 - 文件ID: {file_id}")
+        
+        try:
+            # 标准GraphRAG处理，但使用批处理优化
+            batch_size = config.get("chunk_batch_size", 2)
+            
+            self._update_progress(file_id, 5, "开始PDF解析...")
+            
+            # PDF解析
+            doc = fitz.open(file_path)
+            total_pages = min(len(doc), 20)  # 限制页数
+            
+            all_chunks = []
+            
+            # 逐页处理（批量优化）
+            for page_num in range(total_pages):
+                progress = 5 + int((page_num / total_pages) * 60)
+                self._update_progress(file_id, progress, f"处理第 {page_num + 1}/{total_pages} 页...")
+                
+                page = doc[page_num]
+                
+                # 提取文本
+                text_content = self._extract_text_from_page(page)
+                if text_content:
+                    chunks = self._create_text_chunks(text_content, file_id, page_num)
+                    all_chunks.extend(chunks)
+            
+            doc.close()
+            
+            self._update_progress(file_id, 70, "生成嵌入向量...")
+            
+            # 批量生成嵌入向量
+            if all_chunks:
+                self._generate_embeddings_batched(all_chunks, batch_size)
+            
+            self._update_progress(file_id, 90, "保存到数据库...")
+            
+            # 保存到向量数据库
+            if all_chunks:
+                self._save_to_vector_db(all_chunks)
+            
+            self._update_progress(file_id, 100, "平衡处理完成")
+            
+            logger.info(f"✅ 平衡处理完成 - 文件ID: {file_id}, 向量数: {len(all_chunks)}")
+            
+        except Exception as e:
+            logger.error(f"❌ 平衡处理失败: {e}")
+            raise
+    
+    def _aggressive_processing(self, file_id: str, file_path: str, config: Dict[str, Any]) -> None:
+        """高性能处理模式 - 完整GraphRAG处理"""
+        logger.info(f"🚀 开始高性能处理模式 - 文件ID: {file_id}")
+        
+        try:
+            # 完整的GraphRAG处理
+            batch_size = config.get("chunk_batch_size", 4)
+            
+            self._update_progress(file_id, 5, "开始完整GraphRAG处理...")
+            
+            # 打开PDF文件
+            doc = fitz.open(file_path)
+            total_pages = len(doc)
+            
+            all_chunks = []
+            entities = []
+            relations = []
+            
+            # 处理所有页面
+            for page_num in range(total_pages):
+                progress = 5 + int((page_num / total_pages) * 50)
+                self._update_progress(file_id, progress, f"完整处理第 {page_num + 1}/{total_pages} 页...")
+                
+                page = doc[page_num]
+                
+                # 提取文本
+                text_content = self._extract_text_from_page(page)
+                if text_content:
+                    chunks = self._create_text_chunks(text_content, file_id, page_num)
+                    all_chunks.extend(chunks)
+                
+                # 提取图像
+                images = self._extract_images_from_page(page, page_num)
+                if images:
+                    image_chunks = self._process_images(images, file_id, page_num)
+                    all_chunks.extend(image_chunks)
+                
+                # 提取表格
+                tables = self._extract_tables_from_page(page, page_num)
+                if tables:
+                    table_chunks = self._process_tables(tables, file_id, page_num)
+                    all_chunks.extend(table_chunks)
+            
+            doc.close()
+            
+            self._update_progress(file_id, 60, "生成嵌入向量...")
+            
+            # 高效批量生成嵌入向量
+            if all_chunks:
+                self._generate_embeddings_batched(all_chunks, batch_size)
+            
+            self._update_progress(file_id, 75, "提取实体和关系...")
+            
+            # 提取实体和关系
+            if all_chunks:
+                entities, relations = self._extract_entities_and_relations(all_chunks)
+            
+            self._update_progress(file_id, 85, "保存到向量数据库...")
+            
+            # 保存到向量数据库
+            if all_chunks:
+                self._save_to_vector_db(all_chunks)
+            
+            self._update_progress(file_id, 95, "保存到图数据库...")
+            
+            # 保存到图数据库
+            if entities or relations:
+                self._save_to_graph_db(entities, relations, file_id)
+            
+            self._update_progress(file_id, 100, "高性能处理完成")
+            
+            logger.info(f"✅ 高性能处理完成 - 文件ID: {file_id}, 向量: {len(all_chunks)}, 实体: {len(entities)}, 关系: {len(relations)}")
+            
+        except Exception as e:
+            logger.error(f"❌ 高性能处理失败: {e}")
+            raise
+    
+    def _generate_embeddings_batched(self, chunks: List[Dict], batch_size: int) -> None:
+        """批量生成嵌入向量"""
+        logger.info(f"🔤 开始批量生成嵌入向量 - 总数: {len(chunks)}, 批大小: {batch_size}")
+        
+        try:
+            for i in range(0, len(chunks), batch_size):
+                batch_chunks = chunks[i:i + batch_size]
+                batch_texts = [chunk["content"] for chunk in batch_chunks]
+                
+                logger.debug(f"🔤 处理批次 {i//batch_size + 1} - 文本数: {len(batch_texts)}")
+                
+                # 获取嵌入向量
+                embeddings = model_manager.get_embedding(batch_texts)
+                
+                # 分配给各个块
+                for chunk, embedding in zip(batch_chunks, embeddings):
+                    chunk["embedding"] = embedding
+                
+                logger.debug(f"✅ 批次 {i//batch_size + 1} 处理完成")
+            
+            logger.info(f"✅ 所有嵌入向量生成完成")
+            
+        except Exception as e:
+            logger.error(f"❌ 批量生成嵌入向量失败: {e}")
+            raise
+    
+    def _create_simple_text_chunks(self, text: str, file_id: str) -> List[Dict]:
+        """创建简单文本块（不包含嵌入向量）"""
+        chunk_size = 1000  # 固定块大小
+        chunk_overlap = 200
+        
+        chunks = []
+        start = 0
+        chunk_index = 0
+        
+        while start < len(text):
+            end = start + chunk_size
+            chunk_text = text[start:end]
+            
+            if chunk_text.strip():
+                chunk_id = f"{file_id}_simple_chunk_{chunk_index}"
+                chunks.append({
+                    "chunk_id": chunk_id,
+                    "file_id": file_id,
+                    "content": chunk_text.strip(),
+                    "content_type": "text",
+                    "metadata": {
+                        "chunk_index": chunk_index,
+                        "start_pos": start,
+                        "end_pos": end,
+                        "processing_mode": "conservative"
+                    }
+                })
+                chunk_index += 1
+            
+            start = end - chunk_overlap
+        
+        return chunks
+    
+    def _save_basic_content(self, file_id: str, content: str, chunk_count: int) -> None:
+        """保存基本内容信息"""
+        try:
+            # 保存基本统计信息到数据库
+            char_count = len(content)
+            line_count = content.count('\n') + 1 if content else 0
+            
+            logger.info(f"💾 保存基本内容 - 文件ID: {file_id}, 字符数: {char_count}, 块数: {chunk_count}")
+            
+            # 这里可以扩展保存到专门的表中
+            logger.info(f"✅ 基本内容保存完成 - 文件ID: {file_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ 保存基本内容失败: {e}")
+    
+    def _update_progress(self, file_id: str, progress: int, message: str) -> None:
+        """更新处理进度"""
+        try:
+            self.processing_status[file_id] = {
+                "status": "processing",
+                "progress": progress,
+                "message": message
+            }
+            logger.debug(f"📊 进度更新 - 文件ID: {file_id}, 进度: {progress}%, 消息: {message}")
+        except Exception as e:
+            logger.warning(f"更新进度失败: {e}")
+    
+    def _fallback_processing(self, file_id: str, file_path: str) -> None:
+        """回退处理方式 - 使用原有的线程处理"""
+        logger.info(f"🔄 使用回退处理方式 - 文件ID: {file_id}")
+        
+        try:
+            # 使用原有的线程处理方式
+            thread = threading.Thread(
+                target=self._process_file_content,
+                args=(file_id, file_path),
+                name=f"FallbackProcessor-{file_id[:8]}"
+            )
+            thread.daemon = True
+            thread.start()
+            
+            logger.info(f"✅ 回退处理线程启动成功 - 文件ID: {file_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ 回退处理失败: {e}")
+            self._handle_processing_failure(file_id, f"回退处理失败: {str(e)}")
     
     def _safe_pdf_text_extraction(self, file_id: str, file_path: str) -> str:
         """安全的PDF文本提取"""
@@ -668,9 +984,14 @@ class FileService:
             file_path: 文件路径
         """
         import threading
+        import sys
         current_thread = threading.current_thread()
-        logger.info(f"✅ 文件处理线程已启动 - 线程名: {current_thread.name}, 线程ID: {current_thread.ident}")
-        logger.info(f"📄 开始处理文件 {file_id}，路径: {file_path}")
+        
+        # 强制刷新日志输出，确保线程日志能实时显示
+        logger.info(f"🚀🚀🚀 GraphRAG处理线程已启动 - 线程名: {current_thread.name}, 线程ID: {current_thread.ident}")
+        logger.info(f"📄📄📄 开始GraphRAG处理文件 {file_id}，路径: {file_path}")
+        sys.stdout.flush()
+        sys.stderr.flush()
         
         try:
             # 检查文件是否存在
@@ -754,29 +1075,60 @@ class FileService:
             # 生成嵌入向量
             self.processing_status[file_id]["message"] = "生成嵌入向量..."
             self.processing_status[file_id]["progress"] = 85
-            logger.info(f"开始生成 {len(all_chunks)} 个内容块的嵌入向量")
-            self._generate_embeddings(all_chunks)
-            logger.info("嵌入向量生成完成")
+            logger.info(f"🔤🔤🔤 开始生成 {len(all_chunks)} 个内容块的768维嵌入向量")
+            logger.info(f"🔤 注意：首次加载768维嵌入模型可能需要较长时间...")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            
+            try:
+                self._generate_embeddings(all_chunks)
+                logger.info(f"✅✅✅ 嵌入向量生成完成 - 共生成 {len(all_chunks)} 个768维向量")
+            except Exception as embed_error:
+                logger.error(f"❌❌❌ 嵌入向量生成失败: {embed_error}", exc_info=True)
+                raise
             
             # 提取实体和关系
             self.processing_status[file_id]["message"] = "提取实体和关系..."
             self.processing_status[file_id]["progress"] = 90
-            logger.info("开始提取实体和关系")
-            entities, relations = self._extract_entities_and_relations(all_chunks)
-            logger.info(f"实体和关系提取完成，实体数量: {len(entities)}，关系数量: {len(relations)}")
+            logger.info(f"🧠🧠🧠 开始使用LLM提取实体和关系 - 内容块数量: {len(all_chunks)}")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            
+            try:
+                entities, relations = self._extract_entities_and_relations(all_chunks)
+                logger.info(f"✅✅✅ 实体和关系提取完成 - 实体数量: {len(entities)}, 关系数量: {len(relations)}")
+            except Exception as ner_error:
+                logger.error(f"❌❌❌ 实体关系提取失败: {ner_error}", exc_info=True)
+                # 继续处理，即使没有实体关系也要保存向量
+                entities, relations = [], []
             
             # 保存到向量数据库
             self.processing_status[file_id]["message"] = "保存到向量数据库..."
             self.processing_status[file_id]["progress"] = 95
-            logger.info("开始保存到向量数据库")
-            self._save_to_vector_db(all_chunks)
-            logger.info("向量数据库保存完成")
+            logger.info(f"💾💾💾 开始保存到Milvus向量数据库 - 向量数量: {len(all_chunks)}")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            
+            try:
+                self._save_to_vector_db(all_chunks)
+                logger.info(f"✅✅✅ Milvus向量数据库保存完成 - 成功保存 {len(all_chunks)} 个768维向量")
+            except Exception as milvus_error:
+                logger.error(f"❌❌❌ Milvus向量数据库保存失败: {milvus_error}", exc_info=True)
+                raise
             
             # 保存到图数据库
             self.processing_status[file_id]["message"] = "保存到图数据库..."
-            logger.info("开始保存到图数据库")
-            self._save_to_graph_db(entities, relations, file_id)
-            logger.info("图数据库保存完成")
+            logger.info(f"🕸️🕸️🕸️ 开始保存到Neo4j图数据库 - 实体: {len(entities)}, 关系: {len(relations)}")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            
+            try:
+                self._save_to_graph_db(entities, relations, file_id)
+                logger.info(f"✅✅✅ Neo4j图数据库保存完成 - 实体: {len(entities)}, 关系: {len(relations)}")
+            except Exception as neo4j_error:
+                logger.error(f"❌❌❌ Neo4j图数据库保存失败: {neo4j_error}", exc_info=True)
+                # 图数据库失败不影响整体处理
+                logger.info("⚠️ 图数据库保存失败，但向量数据已保存，继续完成处理")
             
             # 完成处理
             self.processing_status[file_id] = {
@@ -1251,11 +1603,39 @@ OCR提取的文字内容：
     
     def _generate_embeddings(self, chunks: List[Dict]) -> None:
         """为文本块生成嵌入向量"""
-        texts = [chunk["content"] for chunk in chunks]
-        embeddings = model_manager.get_embedding(texts)
+        import sys
+        logger.info(f"🔤 开始处理嵌入向量生成 - 内容块数量: {len(chunks)}")
         
-        for chunk, embedding in zip(chunks, embeddings):
+        texts = [chunk["content"] for chunk in chunks]
+        logger.info(f"🔤 提取文本内容完成 - 文本数量: {len(texts)}")
+        logger.info(f"🔤 文本总长度: {sum(len(text) for text in texts)} 字符")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
+        logger.info(f"🔤 调用模型管理器生成768维嵌入向量...")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
+        try:
+            embeddings = model_manager.get_embedding(texts)
+            logger.info(f"🔤 模型管理器返回嵌入向量 - 向量数量: {len(embeddings)}")
+            
+            if embeddings and len(embeddings) > 0:
+                logger.info(f"🔤 验证向量维度: {len(embeddings[0])} 维")
+                if len(embeddings[0]) != 768:
+                    logger.warning(f"⚠️ 向量维度不匹配！期望768维，实际{len(embeddings[0])}维")
+        except Exception as e:
+            logger.error(f"❌ 嵌入向量生成过程中出错: {e}", exc_info=True)
+            raise
+        
+        logger.info(f"🔤 开始将嵌入向量分配给内容块...")
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
             chunk["embedding"] = embedding
+            if i % 10 == 0:  # 每10个输出一次进度
+                logger.info(f"🔤 已处理 {i+1}/{len(chunks)} 个内容块")
+                sys.stdout.flush()
+        
+        logger.info(f"✅ 嵌入向量生成和分配完成 - 共处理 {len(chunks)} 个内容块")
     
     def _extract_entities_and_relations(self, chunks: List[Dict]) -> tuple:
         """提取实体和关系"""

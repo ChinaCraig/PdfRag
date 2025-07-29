@@ -23,6 +23,72 @@ logging:
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   file: "logs/app.log"
   
+# 硬件自适应配置
+hardware_adaptive:
+  # 是否启用硬件自适应
+  enabled: true
+  # 性能监控间隔（秒）
+  monitoring_interval: 10
+  # 资源使用阈值
+  thresholds:
+    cpu_percent: 80.0
+    memory_percent: 85.0
+    gpu_memory_percent: 90.0
+  # 最低硬件要求
+  minimum_requirements:
+    min_cpu_cores: 2
+    min_memory_gb: 4
+    min_available_memory_gb: 2
+  # 处理模式配置
+  processing_modes:
+    conservative:
+      description: "保守模式 - 最小资源占用"
+      max_concurrent_files: 1
+      chunk_batch_size: 1
+      model_cache_limit: 1
+      enable_gpu: false
+      processing_timeout: 180
+      max_pages_per_file: 10
+    balanced:
+      description: "平衡模式 - 适度资源使用"
+      max_concurrent_files: 2
+      chunk_batch_size: 2
+      model_cache_limit: 2
+      enable_gpu: auto  # 根据硬件自动决定
+      processing_timeout: 300
+      max_pages_per_file: 20
+    aggressive:
+      description: "高性能模式 - 充分利用资源"
+      max_concurrent_files: 4
+      chunk_batch_size: 4
+      model_cache_limit: 3
+      enable_gpu: true
+      processing_timeout: 600
+      max_pages_per_file: -1  # 无限制
+
+# 资源管理配置
+resource_management:
+  # 是否启用资源管理器
+  enabled: true
+  # 线程池配置
+  thread_pool:
+    max_workers: auto  # 自动根据CPU核心数确定
+    thread_name_prefix: "ResourceManager"
+  # 任务队列配置
+  task_queue:
+    max_size: 100
+    timeout: 300
+  # 模型缓存配置
+  model_cache:
+    max_models_in_memory: 2
+    model_ttl_seconds: 300  # 模型缓存生存时间
+    cleanup_interval: 60    # 清理间隔
+  # 自动调整配置
+  auto_adjustment:
+    enabled: true
+    adjustment_threshold: 5  # 调整阈值（秒）
+    max_adjustments_per_hour: 10
+
 # GraphRAG配置
 graph_rag:
   # 文本块大小
@@ -33,6 +99,12 @@ graph_rag:
   entity_threshold: 0.8
   # 关系提取阈值
   relation_threshold: 0.7
+  # 批处理配置
+  batch_processing:
+    enabled: true
+    default_batch_size: 2
+    max_batch_size: 8
+    min_batch_size: 1
   
 # 向量检索配置
 vector_search:
@@ -47,3 +119,45 @@ graph_search:
   max_hops: 3
   # 路径数量限制
   max_paths: 10 
+
+# 性能优化配置
+performance:
+  # 启用性能监控
+  monitoring_enabled: true
+  # 性能日志记录
+  performance_logging:
+    enabled: true
+    log_interval: 30  # 秒
+    detailed_metrics: false
+  # 内存优化
+  memory_optimization:
+    gc_threshold: 85  # 内存使用率超过85%时触发垃圾回收
+    model_unload_threshold: 90  # 内存使用率超过90%时卸载模型
+  # GPU优化
+  gpu_optimization:
+    memory_fraction: 0.8  # GPU显存使用比例
+    allow_growth: true    # 允许显存动态增长
+    
+# 错误处理和恢复
+error_handling:
+  # 最大重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_interval: 5
+  # 失败回退策略
+  fallback_strategy: "conservative"  # conservative, disable, retry
+  # 错误上报
+  error_reporting:
+    enabled: true
+    include_stack_trace: true
+    
+# 开发和调试配置
+development:
+  # 启用开发模式
+  debug_mode: true
+  # 详细日志
+  verbose_logging: false
+  # 性能分析
+  profiling_enabled: false
+  # 模型预加载（开发时可能需要禁用）
+  preload_models: false 

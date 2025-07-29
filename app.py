@@ -128,7 +128,7 @@ def main():
     if not is_reloader:
         print("=" * 60)
         print("PDF智能文件管理系统")
-        print("基于GraphRAG的智能文档检索系统")
+        print("基于GraphRAG的智能文档检索系统 - 硬件自适应版本")
         print("=" * 60)
     
     # 设置日志
@@ -138,7 +138,7 @@ def main():
     try:
         # 只在主进程中执行环境检查（避免Flask reloader重复检查）
         if not is_reloader:
-            # 环境检查
+            # 环境检查（包含硬件检测）
             logger.info("开始环境检查...")
             all_passed, results = environment_checker.check_all()
             
@@ -149,8 +149,49 @@ def main():
             if not all_passed:
                 logger.error("环境检查失败，请修复后重新启动")
                 return False
+            
+            # 初始化资源管理器
+            logger.info("初始化资源管理器...")
+            try:
+                from utils.resource_manager import resource_manager
+                from utils.model_manager import model_manager
+                
+                # 获取硬件信息
+                hardware_info = environment_checker.hardware_info
+                recommended_config = environment_checker.recommended_config
+                
+                # 初始化资源管理器
+                resource_manager.initialize(hardware_info)
+                
+                # 应用硬件配置到模型管理器
+                model_manager.apply_hardware_config(recommended_config)
+                
+                # 输出启动建议
+                startup_recommendations = environment_checker.get_startup_recommendations()
+                if startup_recommendations:
+                    print("\n💡 系统启动建议:")
+                    for rec in startup_recommendations:
+                        print(f"  {rec}")
+                
+                logger.info("资源管理器初始化完成")
+                
+                # 可选：预加载模型（根据硬件性能决定）
+                performance_score = hardware_info.get("performance_score", 50)
+                if performance_score > 70 and recommended_config.get("preload_models", False):
+                    logger.info("系统性能良好，开始预加载模型...")
+                    try:
+                        model_manager.preload_models(["embedding"])
+                        logger.info("模型预加载完成")
+                    except Exception as e:
+                        logger.warning(f"模型预加载失败: {e}")
+                
+            except Exception as e:
+                logger.error(f"资源管理器初始化失败: {e}")
+                # 可以选择继续启动但不使用资源管理器
+                logger.info("将使用传统模式启动")
+                
         else:
-            logger.info("Flask reloader进程启动，跳过环境检查")
+            logger.info("Flask reloader进程启动，跳过环境检查和资源管理器初始化")
         
         # 创建Flask应用
         app = create_app()
@@ -169,6 +210,7 @@ def main():
             print(f"📁 文件管理: http://{host}:{port}/#file-management")
             print(f"🔍 智能检索: http://{host}:{port}/#smart-search")
             print(f"❓ 使用帮助: 点击页面右上角的帮助按钮")
+            print(f"⚙️ 系统已启用硬件自适应优化")
             print("\n按 Ctrl+C 停止服务器")
             print("=" * 60)
         
@@ -180,15 +222,27 @@ def main():
             threaded=True
         )
         
-        return True
-        
     except KeyboardInterrupt:
-        logger.info("用户中断，正在关闭服务器...")
+        logger.info("收到停止信号，正在关闭服务...")
+        
+        # 清理资源
+        if not is_reloader:
+            try:
+                from utils.resource_manager import resource_manager
+                from utils.model_manager import model_manager
+                
+                logger.info("正在清理资源...")
+                resource_manager.shutdown()
+                model_manager.cleanup()
+                logger.info("资源清理完成")
+            except Exception as e:
+                logger.warning(f"资源清理时出现错误: {e}")
+        
         print("\n👋 服务器已停止")
         return True
+        
     except Exception as e:
-        logger.error(f"启动失败: {e}")
-        print(f"\n❌ 启动失败: {e}")
+        logger.error(f"服务器启动失败: {e}", exc_info=True)
         return False
 
 if __name__ == "__main__":

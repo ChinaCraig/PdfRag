@@ -47,5 +47,8 @@ Werkzeug==2.3.7
 celery==5.3.4
 redis==5.0.1
 
+# 硬件检测和系统监控
+psutil==5.9.6
+
 # 开发工具（可选）
-python-dotenv==1.0.0 
+python-dotenv==1.0.1 

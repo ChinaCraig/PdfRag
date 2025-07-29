@@ -1,7 +1,7 @@
 # 模型配置文件 - 管理项目中使用的所有模型
 
 # 全局GPU加速开关，true为启用GPU，false为使用CPU
-gpu_acceleration: false
+gpu_acceleration: true
 
 # 大语言模型配置 - 使用DeepSeek API
 llm:
@@ -12,11 +12,11 @@ llm:
   max_tokens: 4096
   temperature: 0.7
 
-# 嵌入模型配置 - 384维本地模型
+# 嵌入模型配置 - 768维本地模型
 embedding:
-  model_name: "sentence-transformers/all-MiniLM-L6-v2"  # 384维嵌入模型
+  model_name: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"  # 768维多语言嵌入模型
   model_path: "models/embedding"
-  dimensions: 384
+  dimensions: 768
   max_length: 512
   
 # OCR模型配置 - 本地模型
@@ -45,7 +45,7 @@ chart_recognition:
 # 模型下载地址配置
 model_downloads:
   embedding:
-    url: "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
+    url: "https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
   ocr:
     # PaddleOCR会自动下载模型
     auto_download: true

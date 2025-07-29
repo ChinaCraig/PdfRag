@@ -65,6 +65,37 @@ class ConfigLoader:
                 del self._configs[config_name]
         else:
             self._configs.clear()
+    
+    def get_nested_value(self, path: str, default: Any = None) -> Any:
+        """
+        获取嵌套配置值
+        
+        Args:
+            path: 配置路径，用点分隔，格式如 "model.embedding"
+            default: 默认值
+            
+        Returns:
+            配置值或默认值
+        """
+        try:
+            parts = path.split('.')
+            config_name = parts[0]
+            
+            # 加载配置
+            config = self.load_config(config_name)
+            
+            # 逐层获取嵌套值
+            current = config
+            for part in parts[1:]:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    return default
+            
+            return current
+            
+        except Exception:
+            return default
 
 # 全局配置加载器实例
 config_loader = ConfigLoader() 
