@@ -403,9 +403,11 @@ class FileService:
             if width < 50 or height < 50:
                 return f"图像(第{page_num + 1}页)：尺寸{width}x{height}，图像过小跳过OCR"
             
-            # 跳过太大的图像以避免OCR卡住
-            if width * height > 2000000:  # 2M像素
-                return f"图像(第{page_num + 1}页)：尺寸{width}x{height}，图像过大跳过OCR"
+            # 跳过太大的图像以避免OCR卡住 - 针对装修合同等文档优化
+            dev_config = config_loader.get_app_config().get("development", {})
+            max_image_size = dev_config.get("max_image_size", 2000000)
+            if width * height > max_image_size:
+                return f"图像(第{page_num + 1}页)：尺寸{width}x{height}，图像过大跳过OCR（限制：{max_image_size}像素）"
             
             # 构建基础描述
             description = f"图像(第{page_num + 1}页)：尺寸{width}x{height}"
@@ -425,36 +427,17 @@ class FileService:
                 logger.debug(f"💾 保存临时图像: {temp_path}")
                 pix.save(temp_path)
                 
-                # 使用超时保护的OCR
-                import signal
-                import threading
-                
-                class TimeoutException(Exception):
-                    pass
-                
-                def timeout_handler(signum, frame):
-                    raise TimeoutException("OCR超时")
-                
+                # 直接调用OCR，避免多线程问题
                 ocr_text = ""
                 try:
-                    # 设置超时（5秒）
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(5)
-                    
                     logger.debug(f"🔍 开始OCR处理: {temp_path}")
                     ocr_results = model_manager.extract_text_from_image(temp_path)
-                    signal.alarm(0)  # 取消超时
                     
                     if ocr_results:
                         ocr_text = " ".join([result.get("text", "") for result in ocr_results if result.get("text")])
                         logger.debug(f"✅ OCR完成，提取文字: {len(ocr_text)}字符")
                     
-                except TimeoutException:
-                    signal.alarm(0)
-                    logger.warning(f"⏰ OCR处理超时(5秒)，跳过")
-                    ocr_text = ""
                 except Exception as e:
-                    signal.alarm(0)
                     logger.warning(f"⚠️ OCR处理失败: {e}")
                     ocr_text = ""
                 
@@ -598,6 +581,8 @@ class FileService:
     
     def _extract_entities_simple(self, text: str) -> List[Dict[str, Any]]:
         """简化的实体提取"""
+        response = ""  # 初始化response变量避免UnboundLocalError
+        
         try:
             if "entity_extraction" not in self.prompt_config.get("document_parsing", {}):
                 logger.warning("实体提取提示词未配置，跳过实体提取")
@@ -606,17 +591,57 @@ class FileService:
             prompt_template = self.prompt_config["document_parsing"]["entity_extraction"]
             prompt = prompt_template.format(text=text[:2000])  # 限制文本长度
             
+            logger.debug(f"📝 实体提取提示词: {prompt[:200]}...")
             response = self._call_llm_simple(prompt)
+            logger.debug(f"🤖 LLM原始响应: {repr(response[:300])}")
             
-            # 解析JSON响应
+            # 解析JSON响应（增强容错性）
             try:
-                if response.strip().startswith('```json'):
-                    response = response.strip()[7:]
-                if response.strip().endswith('```'):
-                    response = response.strip()[:-3]
+                # 清理响应文本 - 更强的清理逻辑
+                cleaned_response = response.strip()
                 
-                result = json.loads(response.strip())
-                entities = result.get("entities", [])
+                # 移除markdown代码块标记
+                if cleaned_response.startswith('```json'):
+                    cleaned_response = cleaned_response[7:]
+                elif cleaned_response.startswith('```'):
+                    cleaned_response = cleaned_response[3:]
+                    
+                if cleaned_response.endswith('```'):
+                    cleaned_response = cleaned_response[:-3]
+                
+                # 移除额外的换行符和空格，但保持JSON结构
+                cleaned_response = cleaned_response.strip()
+                
+                # 尝试找到JSON对象的开始和结束
+                start_idx = cleaned_response.find('{')
+                end_idx = cleaned_response.rfind('}')
+                
+                if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+                    json_str = cleaned_response[start_idx:end_idx+1]
+                    logger.debug(f"🔍 提取的JSON: {json_str[:100]}...")
+                    result = json.loads(json_str)
+                else:
+                    # 如果找不到完整的JSON对象，尝试直接解析
+                    logger.warning(f"未找到完整JSON对象，尝试直接解析: {cleaned_response[:200]}")
+                    result = json.loads(cleaned_response)
+                
+                # 确保result是字典类型
+                if not isinstance(result, dict):
+                    logger.warning(f"LLM返回的不是字典格式，而是: {type(result).__name__}")
+                    return []
+                
+                # 增强的键名检测和清理
+                entities = []
+                for key in result.keys():
+                    # 清理键名中的换行符和空格
+                    clean_key = key.strip().replace('\n', '').replace('\r', '')
+                    if clean_key == "entities" or "entities" in clean_key:
+                        entities = result[key]
+                        break
+                
+                if not entities:
+                    logger.warning(f"未找到entities字段，可用字段: {list(result.keys())}")
+                    return []
                 
                 # 标准化实体格式
                 standardized_entities = []
@@ -624,42 +649,90 @@ class FileService:
                     if isinstance(entity, dict) and entity.get("name"):
                         standardized_entities.append({
                             "entity_id": str(uuid.uuid4()),
-                            "name": entity.get("name", ""),
-                            "type": entity.get("type", "UNKNOWN"),
+                            "name": entity.get("name", "").strip(),
+                            "type": entity.get("type", "UNKNOWN").strip(),
                             "confidence": 0.8
                         })
                 
+                logger.info(f"✅ 实体提取成功: {len(standardized_entities)}个实体")
                 return standardized_entities
                 
-            except json.JSONDecodeError:
-                logger.warning("LLM返回的不是有效JSON，尝试文本解析")
+            except json.JSONDecodeError as e:
+                logger.warning(f"LLM返回的JSON解析失败: {e}")
+                logger.debug(f"原始响应: {repr(response[:500])}")
+                logger.info("尝试使用文本解析作为备用方案")
                 return self._parse_entities_from_text(response)
                 
         except Exception as e:
             logger.error(f"实体提取失败: {e}")
+            logger.debug(f"实体提取异常详情: {type(e).__name__}: {str(e)}")
+            logger.debug(f"原始LLM响应: {repr(response[:500])}")
             return []
     
     def _extract_relations_simple(self, text: str, entities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """简化的关系提取"""
+        response = ""  # 初始化response变量避免UnboundLocalError
+        
         try:
             if not entities or "relation_extraction" not in self.prompt_config.get("document_parsing", {}):
+                logger.info("跳过关系提取：没有实体或提示词未配置")
                 return []
             
             entities_str = "\n".join([f"- {entity['name']} ({entity['type']})" for entity in entities[:10]])  # 限制实体数量
             prompt_template = self.prompt_config["document_parsing"]["relation_extraction"]
             prompt = prompt_template.format(text=text[:2000], entities=entities_str)
             
+            logger.debug(f"📝 关系提取提示词: {prompt[:200]}...")
             response = self._call_llm_simple(prompt)
+            logger.debug(f"🤖 关系提取LLM原始响应: {repr(response[:300])}")
             
-            # 解析JSON响应
+            # 解析JSON响应（增强容错性）
             try:
-                if response.strip().startswith('```json'):
-                    response = response.strip()[7:]
-                if response.strip().endswith('```'):
-                    response = response.strip()[:-3]
+                # 清理响应文本
+                cleaned_response = response.strip()
                 
-                result = json.loads(response.strip())
-                relations = result.get("relations", [])
+                # 移除markdown代码块标记
+                if cleaned_response.startswith('```json'):
+                    cleaned_response = cleaned_response[7:]
+                elif cleaned_response.startswith('```'):
+                    cleaned_response = cleaned_response[3:]
+                    
+                if cleaned_response.endswith('```'):
+                    cleaned_response = cleaned_response[:-3]
+                
+                # 移除额外的换行符和空格，但保持JSON结构
+                cleaned_response = cleaned_response.strip()
+                
+                # 尝试找到JSON对象的开始和结束
+                start_idx = cleaned_response.find('{')
+                end_idx = cleaned_response.rfind('}')
+                
+                if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+                    json_str = cleaned_response[start_idx:end_idx+1]
+                    logger.debug(f"🔍 关系提取JSON: {json_str[:100]}...")
+                    result = json.loads(json_str)
+                else:
+                    # 如果找不到完整的JSON对象，尝试直接解析
+                    logger.warning(f"关系提取未找到完整JSON对象，尝试直接解析: {cleaned_response[:200]}")
+                    result = json.loads(cleaned_response)
+                
+                # 确保result是字典类型
+                if not isinstance(result, dict):
+                    logger.warning(f"关系提取LLM返回的不是字典格式，而是: {type(result).__name__}")
+                    return []
+                
+                # 增强的键名检测和清理
+                relations = []
+                for key in result.keys():
+                    # 清理键名中的换行符和空格
+                    clean_key = key.strip().replace('\n', '').replace('\r', '')
+                    if clean_key == "relations" or "relations" in clean_key:
+                        relations = result[key]
+                        break
+                
+                if not relations:
+                    logger.warning(f"未找到relations字段，可用字段: {list(result.keys())}")
+                    return []
                 
                 # 标准化关系格式
                 standardized_relations = []
@@ -667,20 +740,24 @@ class FileService:
                     if isinstance(relation, dict) and relation.get("subject") and relation.get("object"):
                         standardized_relations.append({
                             "relationship_id": str(uuid.uuid4()),
-                            "subject": relation.get("subject", ""),
-                            "predicate": relation.get("predicate", "RELATED_TO"),
-                            "object": relation.get("object", ""),
+                            "subject": relation.get("subject", "").strip(),
+                            "predicate": relation.get("predicate", "RELATED_TO").strip(),
+                            "object": relation.get("object", "").strip(),
                             "confidence": relation.get("confidence", 0.8)
                         })
                 
+                logger.info(f"✅ 关系提取成功: {len(standardized_relations)}个关系")
                 return standardized_relations
                 
-            except json.JSONDecodeError:
-                logger.warning("关系提取JSON解析失败")
+            except json.JSONDecodeError as e:
+                logger.warning(f"关系提取JSON解析失败: {e}")
+                logger.debug(f"原始响应: {repr(response[:500])}")
                 return []
                 
         except Exception as e:
             logger.error(f"关系提取失败: {e}")
+            logger.debug(f"关系提取异常详情: {type(e).__name__}: {str(e)}")
+            logger.debug(f"原始LLM响应: {repr(response[:500])}")
             return []
     
     def _save_knowledge_graph(self, entities: List[Dict[str, Any]], relations: List[Dict[str, Any]], file_id: str) -> None:
@@ -723,7 +800,21 @@ class FileService:
     def _call_llm_simple(self, prompt: str) -> str:
         """简化的LLM调用"""
         try:
-            llm_config = self.model_config["llm"]
+            if not hasattr(self, 'model_config') or not self.model_config:
+                logger.error("模型配置未加载")
+                return '{"entities": [], "relations": []}'
+            
+            llm_config = self.model_config.get("llm", {})
+            if not llm_config:
+                logger.error("LLM配置未找到")
+                return '{"entities": [], "relations": []}'
+            
+            # 检查必要的配置项
+            required_keys = ["api_key", "api_url", "model_name"]
+            for key in required_keys:
+                if not llm_config.get(key):
+                    logger.error(f"LLM配置缺少必要项: {key}")
+                    return '{"entities": [], "relations": []}'
             
             headers = {
                 "Authorization": f"Bearer {llm_config['api_key']}",
@@ -733,10 +824,11 @@ class FileService:
             data = {
                 "model": llm_config["model_name"],
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": min(llm_config["max_tokens"], 2048),
-                "temperature": llm_config["temperature"]
+                "max_tokens": min(llm_config.get("max_tokens", 2048), 2048),
+                "temperature": llm_config.get("temperature", 0.7)
             }
             
+            logger.debug(f"🌐 调用LLM API: {llm_config['api_url']}")
             response = requests.post(
                 f"{llm_config['api_url']}/chat/completions",
                 headers=headers,
@@ -746,35 +838,72 @@ class FileService:
             
             if response.status_code == 200:
                 result = response.json()
-                return result["choices"][0]["message"]["content"]
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if not content:
+                    logger.warning("LLM返回空内容")
+                    return '{"entities": [], "relations": []}'
+                return content
             else:
-                logger.error(f"LLM API调用失败: {response.status_code}")
-                return "{}"
+                logger.error(f"LLM API调用失败: HTTP {response.status_code}, 响应: {response.text[:200]}")
+                return '{"entities": [], "relations": []}'
                 
+        except requests.exceptions.Timeout:
+            logger.error("LLM API调用超时")
+            return '{"entities": [], "relations": []}'
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LLM API请求异常: {e}")
+            return '{"entities": [], "relations": []}'
         except Exception as e:
-            logger.error(f"LLM调用失败: {e}")
-            return "{}"
+            logger.error(f"LLM调用异常: {e}")
+            return '{"entities": [], "relations": []}'
     
     def _parse_entities_from_text(self, text: str) -> List[Dict[str, Any]]:
         """从文本中解析实体（备用方法）"""
         entities = []
-        lines = text.strip().split('\n')
-        
-        for line in lines:
-            # 查找形如 "实体名(类型)" 的模式
-            match = re.match(r'.*?([^(]+)\s*\(([^)]+)\)', line)
-            if match:
-                name = match.group(1).strip()
-                entity_type = match.group(2).strip()
-                if name and entity_type:
-                    entities.append({
-                        "entity_id": str(uuid.uuid4()),
-                        "name": name,
-                        "type": entity_type,
-                        "confidence": 0.7
-                    })
-        
-        return entities[:20]  # 限制数量
+        try:
+            lines = text.strip().split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 尝试多种解析模式
+                patterns = [
+                    r'.*?([^(]+)\s*\(([^)]+)\)',  # 实体名(类型)
+                    r'.*?name["\'\s]*:["\'\s]*([^,"\'}]+).*?type["\'\s]*:["\'\s]*([^,"\'}]+)',  # JSON格式的name和type
+                    r'.*?([A-Za-z\u4e00-\u9fff]+).*?([A-Z_]{2,})',  # 中英文实体名和大写类型
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, line, re.IGNORECASE)
+                    if match:
+                        name = match.group(1).strip().strip('"\'')
+                        entity_type = match.group(2).strip().strip('"\'')
+                        
+                        if name and entity_type and len(name) > 1:
+                            entities.append({
+                                "entity_id": str(uuid.uuid4()),
+                                "name": name,
+                                "type": entity_type,
+                                "confidence": 0.6  # 文本解析的置信度较低
+                            })
+                            break
+            
+            # 去重
+            seen_names = set()
+            unique_entities = []
+            for entity in entities:
+                if entity["name"] not in seen_names:
+                    seen_names.add(entity["name"])
+                    unique_entities.append(entity)
+            
+            logger.info(f"📝 文本解析实体备用方案提取到 {len(unique_entities)} 个实体")
+            return unique_entities[:20]  # 限制数量
+            
+        except Exception as e:
+            logger.error(f"文本解析实体失败: {e}")
+            return []
     
     def _update_file_status(self, file_id: str, status: str, progress: int, message: str) -> None:
         """更新文件处理状态"""

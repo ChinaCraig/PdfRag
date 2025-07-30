@@ -92,9 +92,9 @@ resource_management:
 # GraphRAG配置
 graph_rag:
   # 文本块大小
-  chunk_size: 1000
+  chunk_size: 100
   # 文本块重叠
-  chunk_overlap: 200
+  chunk_overlap: 20
   # 实体提取阈值
   entity_threshold: 0.8
   # 关系提取阈值
@@ -163,5 +163,8 @@ development:
   preload_models: true
   # 开发环境特殊设置
   dev_mode_safe: true  # 启用开发安全模式，禁用可能冲突的功能
-  # 暂时跳过图像OCR以避免卡住（调试用）
-  skip_image_ocr: true  # 临时启用，确保PDF处理流程正常
+  # 启用图像OCR识别功能 - 针对装修合同等图像型PDF优化
+  skip_image_ocr: false  # 开启OCR功能，支持图像文字识别
+  # OCR性能优化
+  ocr_timeout: 15  # 增加OCR超时时间
+  max_image_size: 30000000  # 增加图像处理大小限制（3M像素）

@@ -19,13 +19,43 @@ embedding:
   dimensions: 768
   max_length: 512
   
-# OCR模型配置 - 本地模型
+# OCR模型配置 - 支持多引擎
 ocr:
-  model_name: "paddleocr"
-  model_path: "models/ocr"
-  language: ["ch", "en"]  # 支持中英文
-  use_angle_cls: true
-  use_gpu: false  # 由gpu_acceleration全局控制
+  # 默认引擎选择: paddleocr | easyocr
+  default_engine: "easyocr"
+  
+  # 自动选择策略（暂未实现）
+  auto_selection:
+    enabled: false
+    chinese_prefer: "paddleocr"  # 中文优先使用PaddleOCR
+    english_prefer: "easyocr"    # 英文优先使用EasyOCR
+  
+  # PaddleOCR配置
+  paddleocr:
+    model_name: "paddleocr"
+    model_path: "models/ocr"
+    language: ["ch", "en"]  # 支持中英文
+    use_angle_cls: true
+    use_gpu: true  # 根据gpu_acceleration全局控制自动调整
+  
+  # EasyOCR配置
+  easyocr:
+    model_name: "easyocr"
+    model_path: "models/easyocr"
+    languages: ["ch_sim", "en"]  # 简体中文 + 英文
+    download_enabled: true
+    use_gpu: true
+    
+    # EasyOCR检测参数
+    detection_params:
+      text_threshold: 0.7    # 文字检测阈值
+      low_text: 0.4          # 低置信度文字阈值
+      link_threshold: 0.4    # 文字连接阈值
+      width_ths: 0.7         # 文字宽度阈值
+      height_ths: 0.7        # 文字高度阈值
+      slope_ths: 0.1         # 文字倾斜阈值
+      ycenter_ths: 0.7       # Y轴中心阈值
+      mag_ratio: 1.0         # 图像放大比例
   
 # 表格检测模型
 table_detection:

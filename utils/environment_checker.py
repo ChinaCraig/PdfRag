@@ -183,11 +183,31 @@ class EnvironmentChecker:
                 self.warnings.append(f"嵌入模型目录不存在，已创建: {embedding_path}")
                 self.warnings.append("768维嵌入模型将在首次使用时自动下载")
             
-            # 检查OCR模型目录
-            ocr_path = model_config["ocr"]["model_path"]
-            if not os.path.exists(ocr_path):
-                os.makedirs(ocr_path, exist_ok=True)
-                self.warnings.append(f"OCR模型目录不存在，已创建: {ocr_path}")
+            # 检查OCR模型目录（支持新的多引擎配置）
+            ocr_config = model_config.get("ocr", {})
+            
+            # 检查PaddleOCR模型目录
+            paddleocr_config = ocr_config.get("paddleocr", {})
+            if paddleocr_config and "model_path" in paddleocr_config:
+                paddleocr_path = paddleocr_config["model_path"]
+                if not os.path.exists(paddleocr_path):
+                    os.makedirs(paddleocr_path, exist_ok=True)
+                    self.warnings.append(f"PaddleOCR模型目录不存在，已创建: {paddleocr_path}")
+            
+            # 检查EasyOCR模型目录
+            easyocr_config = ocr_config.get("easyocr", {})
+            if easyocr_config and "model_path" in easyocr_config:
+                easyocr_path = easyocr_config["model_path"]
+                if not os.path.exists(easyocr_path):
+                    os.makedirs(easyocr_path, exist_ok=True)
+                    self.warnings.append(f"EasyOCR模型目录不存在，已创建: {easyocr_path}")
+            
+            # 兼容旧配置格式
+            if "model_path" in ocr_config:
+                ocr_path = ocr_config["model_path"]
+                if not os.path.exists(ocr_path):
+                    os.makedirs(ocr_path, exist_ok=True)
+                    self.warnings.append(f"OCR模型目录不存在，已创建: {ocr_path}")
             
             return True
             

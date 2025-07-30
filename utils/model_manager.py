@@ -18,6 +18,7 @@ from paddleocr import PaddleOCR
 
 # 项目内部模块
 from utils.config_loader import config_loader
+from utils.easyocr_manager import EasyOCRManager
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +57,18 @@ class ModelManager:
             "device": "cpu"
         }
         
+        # OCR引擎管理
+        self.ocr_engines = {}
+        self.current_ocr_engine = None
+        self.default_ocr_engine = "easyocr"  # 默认使用EasyOCR
+        
         # 启动清理线程
         self._start_cleanup_thread()
         
-        logger.info("模型管理器初始化完成 - 硬件自适应版本")
+        # 初始化OCR引擎
+        self._init_ocr_engines()
+        
+        logger.info("模型管理器初始化完成 - EasyOCR集成版本")
     
     def apply_hardware_config(self, hardware_config: Dict[str, Any]) -> None:
         """
@@ -112,6 +121,11 @@ class ModelManager:
             if old_gpu_setting != self.adaptive_settings["enable_gpu"]:
                 logger.info("GPU设置已改变，清空模型缓存")
                 self._clear_model_cache()
+            
+            # 将硬件配置应用到OCR引擎
+            for engine in self.ocr_engines.values():
+                if hasattr(engine, 'apply_hardware_config'):
+                    engine.apply_hardware_config(hardware_config)
             
             logger.info(f"硬件自适应配置已应用: {self.adaptive_settings}")
             
@@ -446,7 +460,7 @@ class ModelManager:
     
     def extract_text_from_image(self, image_path: str) -> List[Dict[str, Any]]:
         """
-        从图像中提取文本（OCR）
+        从图像中提取文本（OCR） - 支持多引擎
         
         Args:
             image_path: 图像文件路径
@@ -455,37 +469,29 @@ class ModelManager:
             OCR结果列表
         """
         try:
-            # 加载OCR模型
-            ocr = self.load_ocr_model()
-            if ocr is None:
-                logger.warning("OCR模型加载失败，跳过图像文字提取")
-                return []
-            
-            # 执行OCR
-            results = ocr.ocr(image_path, cls=True)
-            
-            # 解析结果
-            ocr_results = []
-            if results and results[0]:
-                for line in results[0]:
-                    if len(line) >= 2:
-                        bbox = line[0]  # 边界框
-                        text_info = line[1]  # 文字信息
-                        if text_info and len(text_info) >= 2:
-                            text = text_info[0]  # 文字内容
-                            confidence = text_info[1]  # 置信度
-                            
-                            ocr_results.append({
-                                "text": text,
-                                "confidence": confidence,
-                                "bbox": bbox
-                            })
-            
-            logger.debug(f"OCR提取完成: {len(ocr_results)}个文本块")
-            return ocr_results
-            
+            # 使用当前OCR引擎
+            if self.current_ocr_engine:
+                return self.current_ocr_engine.extract_text_from_image(image_path)
+            else:
+                logger.warning("OCR引擎未初始化，尝试初始化默认引擎")
+                self._init_ocr_engines()
+                if self.current_ocr_engine:
+                    return self.current_ocr_engine.extract_text_from_image(image_path)
+                else:
+                    logger.error("OCR引擎初始化失败")
+                    return []
+                
         except Exception as e:
-            logger.error(f"OCR文字提取失败: {e}")
+            logger.error(f"当前OCR引擎处理失败: {e}")
+            
+            # 自动回退到PaddleOCR
+            if self.current_ocr_engine and not isinstance(self.current_ocr_engine, type(self)):
+                logger.info("自动回退到PaddleOCR引擎")
+                try:
+                    return self._extract_with_paddleocr(image_path)
+                except Exception as fallback_error:
+                    logger.error(f"PaddleOCR回退也失败: {fallback_error}")
+            
             return []
     
     def get_model_stats(self) -> Dict[str, Any]:
@@ -543,11 +549,119 @@ class ModelManager:
         
         logger.info("🎉 所有模型预加载完成！")
     
+    def _init_ocr_engines(self):
+        """初始化OCR引擎"""
+        try:
+            # 获取默认引擎配置
+            default_engine = config_loader.get_nested_value("model.ocr.default_engine", self.default_ocr_engine)
+            
+            logger.info(f"初始化OCR引擎，默认引擎: {default_engine}")
+            self._switch_ocr_engine(default_engine)
+            
+        except Exception as e:
+            logger.error(f"初始化OCR引擎失败: {e}")
+            # 回退到EasyOCR
+            try:
+                self._switch_ocr_engine("easyocr")
+            except Exception as fallback_error:
+                logger.error(f"回退到EasyOCR也失败: {fallback_error}")
+    
+    def _switch_ocr_engine(self, engine_type: str):
+        """切换OCR引擎"""
+        try:
+            if engine_type not in self.ocr_engines:
+                if engine_type == "easyocr":
+                    self.ocr_engines[engine_type] = EasyOCRManager()
+                    # 应用硬件配置
+                    self.ocr_engines[engine_type].apply_hardware_config(self.adaptive_settings)
+                elif engine_type == "paddleocr":
+                    # 使用现有的self作为PaddleOCR管理器
+                    self.ocr_engines[engine_type] = self
+                else:
+                    raise ValueError(f"不支持的OCR引擎: {engine_type}")
+            
+            self.current_ocr_engine = self.ocr_engines[engine_type]
+            logger.info(f"OCR引擎已切换到: {engine_type}")
+            
+        except Exception as e:
+            logger.error(f"切换OCR引擎失败: {e}")
+            raise
+    
+    def _extract_with_paddleocr(self, image_path: str) -> List[Dict[str, Any]]:
+        """使用PaddleOCR提取文字（原有逻辑）"""
+        try:
+            # 加载PaddleOCR模型
+            ocr = self.load_ocr_model()
+            if ocr is None:
+                logger.warning("PaddleOCR模型加载失败，跳过图像文字提取")
+                return []
+            
+            # 执行OCR
+            results = ocr.ocr(image_path, cls=True)
+            
+            # 解析结果
+            ocr_results = []
+            if results and results[0]:
+                for line in results[0]:
+                    if len(line) >= 2:
+                        bbox = line[0]  # 边界框
+                        text_info = line[1]  # 文字信息
+                        if text_info and len(text_info) >= 2:
+                            text = text_info[0]  # 文字内容
+                            confidence = text_info[1]  # 置信度
+                            
+                            ocr_results.append({
+                                "text": text,
+                                "confidence": confidence,
+                                "bbox": bbox
+                            })
+            
+            logger.debug(f"PaddleOCR提取完成: {len(ocr_results)}个文本块")
+            return ocr_results
+            
+        except Exception as e:
+            logger.error(f"PaddleOCR文字提取失败: {e}")
+            return []
+    
+    def get_ocr_engine_info(self) -> Dict[str, Any]:
+        """获取OCR引擎信息"""
+        current_engine_name = "unknown"
+        if self.current_ocr_engine == self:
+            current_engine_name = "paddleocr"
+        elif self.current_ocr_engine:
+            if hasattr(self.current_ocr_engine, 'get_model_stats'):
+                stats = self.current_ocr_engine.get_model_stats()
+                current_engine_name = stats.get('engine_type', 'unknown')
+            else:
+                current_engine_name = type(self.current_ocr_engine).__name__.lower()
+        
+        return {
+            "current_engine": current_engine_name,
+            "default_engine": self.default_ocr_engine,
+            "available_engines": list(self.ocr_engines.keys()),
+            "engine_stats": self.current_ocr_engine.get_model_stats() if hasattr(self.current_ocr_engine, 'get_model_stats') else {}
+        }
+    
+    def switch_ocr_engine_runtime(self, engine_type: str) -> bool:
+        """运行时切换OCR引擎"""
+        try:
+            logger.info(f"运行时切换OCR引擎到: {engine_type}")
+            self._switch_ocr_engine(engine_type)
+            return True
+        except Exception as e:
+            logger.error(f"运行时切换OCR引擎失败: {e}")
+            return False
+    
     def cleanup(self) -> None:
         """清理资源"""
         try:
             logger.info("正在清理模型管理器...")
             self._clear_model_cache()
+            
+            # 清理OCR引擎
+            for engine in self.ocr_engines.values():
+                if hasattr(engine, 'cleanup') and engine != self:
+                    engine.cleanup()
             
             # 停止清理线程（线程是daemon，会自动结束）
             
