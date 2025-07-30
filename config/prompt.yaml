@@ -10,11 +10,11 @@ document_parsing:
     {text}
     
     请以JSON格式返回实体列表，每个实体包含名称、类型和在文本中的位置：
-    {
+    {{
       "entities": [
-        {"name": "实体名", "type": "实体类型", "position": "起始位置-结束位置"}
+        {{"name": "实体名", "type": "实体类型", "position": "起始位置-结束位置"}}
       ]
-    }
+    }}
   
   # 关系提取提示词
   relation_extraction: |
@@ -27,11 +27,11 @@ document_parsing:
     {entities}
     
     请以JSON格式返回关系列表：
-    {
+    {{
       "relations": [
-        {"subject": "主体实体", "predicate": "关系类型", "object": "客体实体", "confidence": 0.95}
+        {{"subject": "主体实体", "predicate": "关系类型", "object": "客体实体", "confidence": 0.95}}
       ]
-    }
+    }}
 
 # 表格分析提示词
 table_analysis:
