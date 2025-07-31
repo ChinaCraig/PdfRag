@@ -18,7 +18,6 @@ Pillow==10.0.1
 # OCR和NLP模型
 paddleocr==2.7.3
 paddlepaddle==2.5.2
-easyocr==1.7.2
 sentence-transformers==2.2.2
 transformers==4.35.0
 

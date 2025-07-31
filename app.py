@@ -209,16 +209,8 @@ def main():
                 preload_enabled = False  # 强制禁用
             
             if preload_enabled:
-                logger.info("🚀 配置启用了模型预加载，开始下载模型...")
-                print("\n🚀 模型预加载已启用，正在下载必需模型...")
-                try:
-                    from utils.model_manager import model_manager
-                    model_manager.preload_models(["embedding", "ocr"])
-                    logger.info("✅ 模型预加载完成")
-                    print("✅ 模型预加载完成！")
-                except Exception as e:
-                    logger.warning(f"⚠️ 模型预加载失败: {e}")
-                    print(f"⚠️ 模型预加载失败: {e}")
+                logger.info("⏳ 模型预加载功能已简化，模型将在首次使用时自动加载")
+                print("⏳ 模型预加载功能已简化，模型将在首次使用时自动加载")
             else:
                 logger.info("⏳ 模型将在首次使用时自动下载")
                 if debug_mode:
@@ -265,10 +257,8 @@ def main():
         # 清理资源
         if not is_reloader:
             try:
-                from utils.model_manager import model_manager
-                
                 logger.info("正在清理资源...")
-                model_manager.cleanup()
+                # 模型管理器已简化，无需额外清理
                 logger.info("资源清理完成")
             except Exception as e:
                 logger.warning(f"资源清理时出现错误: {e}")

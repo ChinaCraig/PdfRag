@@ -19,69 +19,169 @@ embedding:
   dimensions: 768
   max_length: 512
   
-# OCR模型配置 - 支持多引擎
+# OCR模型配置 - 使用PaddleOCR
 ocr:
-  # 默认引擎选择: paddleocr | easyocr
-  default_engine: "easyocr"
-  
-  # 自动选择策略（暂未实现）
-  auto_selection:
-    enabled: false
-    chinese_prefer: "paddleocr"  # 中文优先使用PaddleOCR
-    english_prefer: "easyocr"    # 英文优先使用EasyOCR
+  # 使用PaddleOCR作为唯一OCR引擎
+  engine: "paddleocr"
   
   # PaddleOCR配置
-  paddleocr:
-    model_name: "paddleocr"
-    model_path: "models/ocr"
-    language: ["ch", "en"]  # 支持中英文
-    use_angle_cls: true
-    use_gpu: true  # 根据gpu_acceleration全局控制自动调整
+  model_name: "paddleocr"
+  model_path: "models/ocr"
+  language: ["ch", "en"]  # 支持中英文
+  use_angle_cls: true     # 使用角度分类器
+  use_gpu: true          # 根据gpu_acceleration全局控制自动调整
   
-  # EasyOCR配置
-  easyocr:
-    model_name: "easyocr"
-    model_path: "models/easyocr"
-    languages: ["ch_sim", "en"]  # 简体中文 + 英文
-    download_enabled: true
-    use_gpu: true
-    
-    # EasyOCR检测参数
-    detection_params:
-      text_threshold: 0.7    # 文字检测阈值
-      low_text: 0.4          # 低置信度文字阈值
-      link_threshold: 0.4    # 文字连接阈值
-      width_ths: 0.7         # 文字宽度阈值
-      height_ths: 0.7        # 文字高度阈值
-      slope_ths: 0.1         # 文字倾斜阈值
-      ycenter_ths: 0.7       # Y轴中心阈值
-      mag_ratio: 1.0         # 图像放大比例
+  # PaddleOCR检测参数
+  detection_params:
+    det_limit_side_len: 960     # 检测模型输入图像长边限制
+    det_limit_type: "max"       # 检测模型输入图像限制类型
+    det_thresh: 0.3            # 检测阈值
+    det_box_thresh: 0.6        # 检测框阈值
+    det_unclip_ratio: 1.5      # 检测框扩展比例
+    max_candidates: 1000       # 最大候选框数量
+    unclip_ratio: 1.5          # 文本框扩展比例
+    use_polygon: false         # 是否使用多边形检测
+  
+  # PaddleOCR识别参数  
+  recognition_params:
+    rec_batch_num: 6           # 识别批处理大小
+    max_text_length: 25        # 最大文本长度
+    rec_char_dict_path: ""     # 字典路径（空则使用默认）
+    use_space_char: true       # 是否使用空格字符
   
 # 表格检测模型
 table_detection:
-  model_name: "table-transformer-detection"
+  model_name: "microsoft/table-transformer-detection"
   model_path: "models/table_detection"
+  # 检测阈值
+  detection_threshold: 0.7
+  # 最大表格数量（每页）
+  max_tables_per_page: 10
+  # 表格内容提取
+  content_extraction:
+    enabled: true
+    # 使用OCR提取表格文本
+    use_ocr: true
+    # 表格结构识别
+    structure_recognition: true
   
 # 图像分析模型
 image_analysis:
-  model_name: "blip2"
+  model_name: "Salesforce/blip2-opt-2.7b"
   model_path: "models/image_analysis"
-  
-# 图表识别模型
+  # 图像理解配置
+  understanding:
+    # 描述生成
+    description_generation: true
+    # 对象检测
+    object_detection: true
+    # 场景理解
+    scene_understanding: true
+    # 文字检测（配合OCR）
+    text_detection: true
+  # 处理参数
+  processing:
+    # 最大输入分辨率
+    max_resolution: [1024, 1024]
+    # 批处理大小
+    batch_size: 1
+    # 生成参数
+    generation:
+      max_length: 200
+      temperature: 0.7
+      do_sample: true
+
+# 图表识别模型  
 chart_recognition:
-  model_name: "chart2text"
+  model_name: "ahmed-masry/chartqa_with_t5"
   model_path: "models/chart_recognition"
-  
+  # 图表类型支持
+  supported_chart_types:
+    - "bar_chart"
+    - "line_chart"
+    - "pie_chart"
+    - "scatter_plot"
+    - "histogram"
+    - "box_plot"
+    - "area_chart"
+  # 数据提取配置
+  data_extraction:
+    # 坐标轴识别
+    axis_recognition: true
+    # 数据点提取
+    data_point_extraction: true
+    # 趋势分析
+    trend_analysis: true
+    # 统计信息
+    statistical_analysis: true
+  # 描述生成
+  description_generation:
+    # 结构化描述
+    structured_description: true
+    # 自然语言描述
+    natural_language_description: true
+    # 数据摘要
+    data_summary: true
+
+
 # 模型下载地址配置
 model_downloads:
   embedding:
     url: "https://huggingface.co/sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-  ocr:
-    # PaddleOCR会自动下载模型
     auto_download: true
+    cache_dir: "models/embedding"
+  
+  ocr:
+    # PaddleOCR模型配置
+    paddleocr:
+      auto_download: true
+      cache_dir: "models/ocr"
+      
   table_detection:
     url: "https://huggingface.co/microsoft/table-transformer-detection"
+    auto_download: true
+    cache_dir: "models/table_detection"
+    
   image_analysis:
     url: "https://huggingface.co/Salesforce/blip2-opt-2.7b"
+    auto_download: true
+    cache_dir: "models/image_analysis"
+    # 替代模型（如果主模型不可用）
+    fallback_models:
+      - "Salesforce/blip2-flan-t5-xl"
+      - "microsoft/DiT-base"
+      
   chart_recognition:
-    url: "https://huggingface.co/chart2text/chart2text" 
+    url: "https://huggingface.co/ahmed-masry/chartqa_with_t5"
+    auto_download: true
+    cache_dir: "models/chart_recognition"
+    # 图表识别的替代方案
+    fallback_models:
+      - "microsoft/trocr-base-chart"
+      
+
+
+# 模型性能配置
+model_performance:
+  # GPU内存管理
+  gpu_memory:
+    # 模型显存占用限制（MB）
+    max_memory_per_model: 2048
+    # 显存清理策略
+    cleanup_strategy: "lru"
+    # 自动卸载不活跃模型
+    auto_unload_inactive: true
+    
+  # CPU推理优化
+  cpu_optimization:
+    # 线程数（auto为自动检测）
+    num_threads: "auto"
+    # 使用优化库
+    use_optimized_kernels: true
+    
+  # 模型量化（减少内存使用）
+  quantization:
+    # 是否启用量化
+    enabled: false
+    # 量化类型（int8, fp16）
+    type: "int8" 

@@ -1,42 +1,44 @@
 """
-环境检查器 - 重构版
-检查项目启动必需的环境条件
+环境检查器 - 全面重构版
+检查项目启动必需的环境条件，包括数据库连接、模型预下载等
 """
 import os
 import sys
 import logging
 import requests
-from typing import List, Dict, Any
+import time
+from typing import List, Dict, Any, Optional
 
 from utils.config_loader import config_loader
 
 logger = logging.getLogger(__name__)
 
 class EnvironmentChecker:
-    """环境检查器 - 重构版"""
+    """环境检查器 - 全面重构版"""
     
     def __init__(self):
         self.errors = []
         self.warnings = []
         self.success_messages = []
+        self.check_results = {}  # 存储检查结果供重新检查使用
     
     def check_all(self) -> bool:
         """执行所有环境检查"""
         self.errors.clear()
         self.warnings.clear()
         self.success_messages.clear()
+        self.check_results.clear()
         
-        logger.info("🔍 开始环境检查...")
+        logger.info("🔍 开始全面环境检查...")
         
         checks = [
             ("目录结构", self._check_directories),
-            ("Python依赖", self._check_python_dependencies),
-            ("MySQL连接", self._check_mysql_connection),
-            ("Milvus连接", self._check_milvus_connection),
-            ("Neo4j连接", self._check_neo4j_connection),
-            ("模型目录", self._check_model_directories),
-            ("DeepSeek API", self._check_deepseek_api),
-            ("OCR模型预加载", self._check_and_preload_ocr)  # 新增OCR预加载检查
+            ("MySQL连接", self._check_mysql_comprehensive),
+            ("Milvus连接", self._check_milvus_comprehensive),
+            ("Neo4j连接", self._check_neo4j_comprehensive),
+            ("DeepSeek API", self._check_deepseek_comprehensive),
+            ("模型检查和预下载", self._check_and_preload_models),
+            ("环境验证", self._verify_all_checks)  # 最后验证所有检查项
         ]
         
         all_passed = True
@@ -83,92 +85,198 @@ class EnvironmentChecker:
         except Exception as e:
             self.errors.append(f"目录检查失败: {e}")
             return False
+
     
-    def _check_python_dependencies(self) -> bool:
-        """检查Python依赖包"""
+    def _check_mysql_comprehensive(self) -> bool:
+        """
+        MySQL数据库全面检查
+        1. 检查连接是否成功
+        2. 检查数据库是否存在，不存在则创建
+        3. 检查表结构是否完整，不完整则修复
+        """
         try:
-            required_packages = [
-                ("flask", "flask"),
-                ("pymysql", "pymysql"),
-                ("pymilvus", "pymilvus"),
-                ("neo4j", "neo4j"),
-                ("sentence_transformers", "sentence_transformers"),
-                ("paddleocr", "paddleocr"),
-                ("PyMuPDF", "fitz"),
-                ("requests", "requests"),
-                ("pyyaml", "yaml"),
-                ("pillow", "PIL")
-            ]
+            logger.info("🔍 开始MySQL数据库全面检查...")
             
-            missing_packages = []
-            for package, import_name in required_packages:
-                try:
-                    __import__(import_name)
-                except ImportError:
-                    missing_packages.append(package)
-            
-            if missing_packages:
-                self.errors.append(f"缺少必需的Python包: {', '.join(missing_packages)}")
-                self.errors.append("请运行: pip install -r requirements.txt")
-                return False
-            
-            return True
-            
-        except Exception as e:
-            self.errors.append(f"Python依赖检查失败: {e}")
-            return False
-    
-    def _check_mysql_connection(self) -> bool:
-        """检查MySQL数据库连接"""
-        try:
             # 延迟导入数据库模块
             from utils.database import mysql_manager
             
-            mysql_manager.connect()
-            # 测试基本查询
-            mysql_manager.execute_query("SELECT 1")
-            mysql_manager.disconnect()
-            return True
+            # 第一步：检查连接
+            logger.info("📊 检查MySQL连接...")
+            try:
+                mysql_manager.connect()
+                self.success_messages.append("MySQL连接成功")
+                logger.info("✅ MySQL连接成功")
+            except Exception as e:
+                self.errors.append(f"MySQL连接失败: {e}")
+                logger.error(f"❌ MySQL连接失败: {e}")
+                return False
+            
+            # 第二步：检查数据库是否存在（connect方法已包含此检查）
+            # MySQL管理器的connect方法会自动创建数据库
+            
+            # 第三步：检查表结构完整性
+            logger.info("📋 检查MySQL表结构...")
+            if self._verify_mysql_tables(mysql_manager):
+                self.success_messages.append("MySQL表结构完整")
+                logger.info("✅ MySQL表结构完整")
+            else:
+                logger.warning("⚠️ MySQL表结构不完整，正在修复...")
+                if self._repair_mysql_tables(mysql_manager):
+                    self.success_messages.append("MySQL表结构已修复")
+                    logger.info("✅ MySQL表结构修复成功")
+                else:
+                    self.errors.append("MySQL表结构修复失败")
+                    logger.error("❌ MySQL表结构修复失败")
+                    return False
+            
+            # 第四步：验证修复结果
+            logger.info("🔄 重新验证MySQL环境...")
+            time.sleep(1)  # 等待数据库更新
+            if self._verify_mysql_tables(mysql_manager):
+                self.check_results["mysql"] = True
+                return True
+            else:
+                self.errors.append("MySQL表结构验证失败")
+                return False
             
         except Exception as e:
-            self.errors.append(f"MySQL连接失败: {e}")
-            self.errors.append("请检查数据库配置和网络连接")
+            self.errors.append(f"MySQL检查异常: {e}")
+            logger.error(f"❌ MySQL检查异常: {e}")
             return False
     
-    def _check_milvus_connection(self) -> bool:
-        """检查Milvus向量数据库连接"""
+    def _check_milvus_comprehensive(self) -> bool:
+        """
+        Milvus向量数据库全面检查
+        1. 检查连接是否成功
+        2. 检查数据库是否存在，不存在则创建
+        3. 检查集合是否存在，不存在则创建
+        """
         try:
+            logger.info("🔍 开始Milvus向量数据库全面检查...")
+            
             # 延迟导入数据库模块
             from utils.database import milvus_manager
             
-            milvus_manager.connect()
-            # 检查集合是否存在，不存在则创建
-            if not milvus_manager.has_collection():
-                milvus_manager.create_collection()
-                self.warnings.append("Milvus集合不存在，已自动创建")
+            # 第一步：检查连接
+            logger.info("🔗 检查Milvus连接...")
+            try:
+                milvus_manager.connect()
+                self.success_messages.append("Milvus连接成功")
+                logger.info("✅ Milvus连接成功")
+            except Exception as e:
+                self.errors.append(f"Milvus连接失败: {e}")
+                self.errors.append("请检查Milvus服务状态和网络连接")
+                logger.error(f"❌ Milvus连接失败: {e}")
+                return False
             
-            return True
+            # 第二步：检查数据库是否存在（connect方法中_init_collection已包含此检查）
+            # Milvus管理器的connect方法会自动创建数据库
+            
+            # 第三步：检查集合是否存在
+            logger.info("📦 检查Milvus集合...")
+            if milvus_manager.has_collection():
+                self.success_messages.append("Milvus集合已存在")
+                logger.info("✅ Milvus集合已存在")
+            else:
+                logger.info("📥 Milvus集合不存在，正在创建...")
+                try:
+                    milvus_manager.create_collection()
+                    self.success_messages.append("Milvus集合已创建")
+                    logger.info("✅ Milvus集合创建成功")
+                except Exception as e:
+                    self.errors.append(f"Milvus集合创建失败: {e}")
+                    logger.error(f"❌ Milvus集合创建失败: {e}")
+                    return False
+            
+            # 第四步：验证集合状态
+            logger.info("🔄 重新验证Milvus环境...")
+            time.sleep(1)  # 等待Milvus更新
+            if milvus_manager.has_collection():
+                self.check_results["milvus"] = True
+                return True
+            else:
+                self.errors.append("Milvus集合验证失败")
+                return False
             
         except Exception as e:
-            self.errors.append(f"Milvus连接失败: {e}")
-            self.errors.append("请检查Milvus服务状态和网络连接")
+            self.errors.append(f"Milvus检查异常: {e}")
+            logger.error(f"❌ Milvus检查异常: {e}")
             return False
     
-    def _check_neo4j_connection(self) -> bool:
-        """检查Neo4j图数据库连接"""
+    def _check_neo4j_comprehensive(self) -> bool:
+        """
+        Neo4j图数据库全面检查
+        1. 检查连接是否成功
+        2. 检查数据库是否存在，不存在则创建
+        """
         try:
+            logger.info("🔍 开始Neo4j图数据库全面检查...")
+            
             # 延迟导入数据库模块
             from utils.database import neo4j_manager
             
-            neo4j_manager.connect()
-            # 测试基本查询
-            neo4j_manager.execute_query("RETURN 1 as test")
-            neo4j_manager.disconnect()
-            return True
+            # 第一步：检查连接
+            logger.info("🕸️ 检查Neo4j连接...")
+            try:
+                neo4j_manager.connect()
+                self.success_messages.append("Neo4j连接成功")
+                logger.info("✅ Neo4j连接成功")
+            except Exception as e:
+                self.errors.append(f"Neo4j连接失败: {e}")
+                self.errors.append("请检查Neo4j服务状态和认证信息")
+                logger.error(f"❌ Neo4j连接失败: {e}")
+                return False
+            
+            # 第二步：测试基本操作
+            logger.info("🧪 测试Neo4j基本功能...")
+            try:
+                test_result = neo4j_manager.execute_query("RETURN 1 as test")
+                if test_result and len(test_result) > 0 and test_result[0].get("test") == 1:
+                    self.success_messages.append("Neo4j基本功能正常")
+                    logger.info("✅ Neo4j基本功能测试通过")
+                else:
+                    self.errors.append("Neo4j基本功能测试失败")
+                    logger.error("❌ Neo4j基本功能测试失败")
+                    return False
+            except Exception as e:
+                self.errors.append(f"Neo4j功能测试失败: {e}")
+                logger.error(f"❌ Neo4j功能测试失败: {e}")
+                return False
+            
+            # 第三步：检查并创建索引（如果需要）
+            logger.info("📋 检查Neo4j索引...")
+            try:
+                # 创建常用索引以提高查询性能
+                neo4j_manager.execute_query("""
+                CREATE INDEX IF NOT EXISTS FOR (n:Entity) ON (n.name)
+                """)
+                neo4j_manager.execute_query("""
+                CREATE INDEX IF NOT EXISTS FOR (n:Entity) ON (n.file_id)
+                """)
+                self.success_messages.append("Neo4j索引已创建")
+                logger.info("✅ Neo4j索引创建完成")
+            except Exception as e:
+                logger.warning(f"⚠️ Neo4j索引创建失败: {e}")
+                self.warnings.append(f"Neo4j索引创建失败: {e}")
+            
+            # 第四步：验证数据库可用性
+            logger.info("🔄 重新验证Neo4j环境...")
+            try:
+                test_result = neo4j_manager.execute_query("RETURN datetime() as now")
+                if test_result:
+                    self.check_results["neo4j"] = True
+                    neo4j_manager.disconnect()
+                    return True
+                else:
+                    self.errors.append("Neo4j验证查询失败")
+                    return False
+            except Exception as e:
+                self.errors.append(f"Neo4j验证失败: {e}")
+                return False
             
         except Exception as e:
-            self.errors.append(f"Neo4j连接失败: {e}")
-            self.errors.append("请检查Neo4j服务状态和认证信息")
+            self.errors.append(f"Neo4j检查异常: {e}")
+            logger.error(f"❌ Neo4j检查异常: {e}")
             return False
     
     def _check_model_directories(self) -> bool:
@@ -183,31 +291,13 @@ class EnvironmentChecker:
                 self.warnings.append(f"嵌入模型目录不存在，已创建: {embedding_path}")
                 self.warnings.append("768维嵌入模型将在首次使用时自动下载")
             
-            # 检查OCR模型目录（支持新的多引擎配置）
-            ocr_config = model_config.get("ocr", {})
-            
             # 检查PaddleOCR模型目录
-            paddleocr_config = ocr_config.get("paddleocr", {})
-            if paddleocr_config and "model_path" in paddleocr_config:
-                paddleocr_path = paddleocr_config["model_path"]
-                if not os.path.exists(paddleocr_path):
-                    os.makedirs(paddleocr_path, exist_ok=True)
-                    self.warnings.append(f"PaddleOCR模型目录不存在，已创建: {paddleocr_path}")
-            
-            # 检查EasyOCR模型目录
-            easyocr_config = ocr_config.get("easyocr", {})
-            if easyocr_config and "model_path" in easyocr_config:
-                easyocr_path = easyocr_config["model_path"]
-                if not os.path.exists(easyocr_path):
-                    os.makedirs(easyocr_path, exist_ok=True)
-                    self.warnings.append(f"EasyOCR模型目录不存在，已创建: {easyocr_path}")
-            
-            # 兼容旧配置格式
-            if "model_path" in ocr_config:
-                ocr_path = ocr_config["model_path"]
-                if not os.path.exists(ocr_path):
-                    os.makedirs(ocr_path, exist_ok=True)
-                    self.warnings.append(f"OCR模型目录不存在，已创建: {ocr_path}")
+            ocr_config = model_config.get("ocr", {})
+            ocr_path = ocr_config.get("model_path", "models/ocr")
+            if not os.path.exists(ocr_path):
+                os.makedirs(ocr_path, exist_ok=True)
+                self.warnings.append(f"PaddleOCR模型目录不存在，已创建: {ocr_path}")
+                self.warnings.append("PaddleOCR模型将在首次使用时自动下载")
             
             return True
             
@@ -215,145 +305,165 @@ class EnvironmentChecker:
             self.errors.append(f"模型目录检查失败: {e}")
             return False
     
-    def _check_deepseek_api(self) -> bool:
-        """检查DeepSeek API连接"""
+    def _check_deepseek_comprehensive(self) -> bool:
+        """
+        DeepSeek API全面检查
+        1. 检查API密钥是否配置
+        2. 检查API连接是否成功
+        3. 验证密钥是否正确
+        """
         try:
+            logger.info("🔍 开始DeepSeek API全面检查...")
+            
             model_config = config_loader.get_model_config()
-            llm_config = model_config["llm"]
+            llm_config = model_config.get("llm", {})
             
-            api_key = llm_config["api_key"]
-            api_url = llm_config["api_url"]
-            
-            if not api_key or api_key == "your-api-key-here":
-                self.errors.append("DeepSeek API密钥未配置")
-                self.errors.append("请在config/model.yaml中设置正确的API密钥")
+            if not llm_config:
+                self.errors.append("DeepSeek LLM配置未找到")
+                logger.error("❌ DeepSeek LLM配置未找到")
                 return False
             
-            # 简单测试API连接
-            import requests
+            api_key = llm_config.get("api_key", "")
+            api_url = llm_config.get("api_url", "")
+            model_name = llm_config.get("model_name", "")
             
+            # 第一步：检查配置完整性
+            logger.info("🔑 检查DeepSeek API配置...")
+            if not api_key or api_key == "your-api-key-here" or api_key.startswith("sk-"):
+                if not api_key or api_key == "your-api-key-here":
+                    self.errors.append("DeepSeek API密钥未配置")
+                    self.errors.append("请在config/model.yaml中设置正确的API密钥")
+                    logger.error("❌ DeepSeek API密钥未配置")
+                    return False
+                elif len(api_key) < 20:
+                    self.errors.append("DeepSeek API密钥格式不正确")
+                    logger.error("❌ DeepSeek API密钥格式不正确")
+                    return False
+            
+            if not api_url:
+                self.errors.append("DeepSeek API地址未配置")
+                logger.error("❌ DeepSeek API地址未配置")
+                return False
+            
+            if not model_name:
+                self.errors.append("DeepSeek模型名称未配置")
+                logger.error("❌ DeepSeek模型名称未配置")
+                return False
+            
+            self.success_messages.append("DeepSeek API配置完整")
+            logger.info("✅ DeepSeek API配置检查通过")
+            
+            # 第二步：测试API连接和密钥有效性
+            logger.info("🌐 测试DeepSeek API连接...")
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
             
-            # 发送简单的测试请求
+            # 发送测试请求
             test_data = {
-                "model": llm_config["model_name"],
-                "messages": [{"role": "user", "content": "test"}],
+                "model": model_name,
+                "messages": [{"role": "user", "content": "你好"}],
                 "max_tokens": 10
             }
             
-            response = requests.post(
-                f"{api_url}/chat/completions",
-                headers=headers,
-                json=test_data,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                logger.info("DeepSeek API连接正常")
-                return True
-            else:
-                self.errors.append(f"DeepSeek API测试失败: HTTP {response.status_code}")
+            try:
+                response = requests.post(
+                    f"{api_url}/chat/completions",
+                    headers=headers,
+                    json=test_data,
+                    timeout=15
+                )
+                
+                if response.status_code == 200:
+                    self.success_messages.append("DeepSeek API连接和密钥验证成功")
+                    logger.info("✅ DeepSeek API连接和密钥验证成功")
+                    self.check_results["deepseek"] = True
+                    return True
+                elif response.status_code == 401:
+                    self.errors.append("DeepSeek API密钥无效或已过期")
+                    logger.error("❌ DeepSeek API密钥无效或已过期")
+                    return False
+                elif response.status_code == 403:
+                    self.errors.append("DeepSeek API访问被拒绝，检查密钥权限")
+                    logger.error("❌ DeepSeek API访问被拒绝")
+                    return False
+                else:
+                    self.errors.append(f"DeepSeek API测试失败: HTTP {response.status_code} - {response.text[:200]}")
+                    logger.error(f"❌ DeepSeek API测试失败: HTTP {response.status_code}")
+                    return False
+                    
+            except requests.exceptions.Timeout:
+                self.errors.append("DeepSeek API请求超时，请检查网络连接")
+                logger.error("❌ DeepSeek API请求超时")
+                return False
+            except requests.exceptions.ConnectionError:
+                self.errors.append("DeepSeek API连接失败，请检查网络连接和API地址")
+                logger.error("❌ DeepSeek API连接失败")
+                return False
+            except Exception as e:
+                self.errors.append(f"DeepSeek API测试异常: {e}")
+                logger.error(f"❌ DeepSeek API测试异常: {e}")
                 return False
                 
         except Exception as e:
-            self.errors.append(f"DeepSeek API检查失败: {e}")
+            self.errors.append(f"DeepSeek API检查异常: {e}")
+            logger.error(f"❌ DeepSeek API检查异常: {e}")
             return False
     
-    def _check_and_preload_ocr(self) -> bool:
-        """检查并预加载OCR模型"""
+    def _check_and_preload_models(self) -> bool:
+        """
+        模型检查和预下载 - 重构版
+        1. 统一检查所有配置的模型是否存在
+        2. 验证模型文件完整性
+        3. 自动下载缺失的模型
+        4. 验证模型可用性
+        """
         try:
-            logger.info("🔍 开始检查OCR模型...")
+            logger.info("🔍 开始模型检查和预下载（重构版）...")
             
-            # 检查PaddleOCR默认模型目录
-            paddleocr_dir = os.path.expanduser("~/.paddleocr/")
-            models_dir = os.path.join(paddleocr_dir, "whl")
+            model_config = config_loader.get_model_config()
+            all_models_ok = True
             
-            # 检查是否有模型文件
-            has_models = False
-            if os.path.exists(models_dir):
-                for root, dirs, files in os.walk(models_dir):
-                    # 查找.pdmodel文件（PaddlePaddle模型文件）
-                    if any(f.endswith('.pdmodel') for f in files):
-                        has_models = True
-                        break
+            # 获取所有需要检查的模型配置
+            model_checks = [
+                ("嵌入模型", "embedding", self._check_and_download_embedding_model),
+                ("OCR模型", "ocr", self._check_and_download_ocr_model),
+                ("表格检测模型", "table_detection", self._check_and_download_transformers_model),
+                ("图像分析模型", "image_analysis", self._check_and_download_transformers_model),
+                ("图表识别模型", "chart_recognition", self._check_and_download_transformers_model)
+            ]
             
-            if not has_models:
-                logger.warning("⚠️ PaddleOCR模型文件不存在，首次使用时将自动下载")
-                logger.info("🔄 开始预加载OCR模型（首次下载可能需要几分钟）...")
-                
-                # 创建临时图像进行OCR测试，触发模型下载
-                import tempfile
-                from PIL import Image
-                import io
-                
-                # 创建一个简单的测试图像
-                img = Image.new('RGB', (100, 50), color='white')
-                # 添加一些简单文字（用于OCR测试）
-                from PIL import ImageDraw, ImageFont
-                draw = ImageDraw.Draw(img)
-                try:
-                    # 尝试使用默认字体
-                    draw.text((10, 10), "Test", fill='black')
-                except:
-                    # 如果字体加载失败，直接绘制简单形状
-                    draw.rectangle([10, 10, 90, 40], outline='black', width=2)
-                
-                # 保存临时图像
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                    img.save(tmp_file.name)
-                    temp_image_path = tmp_file.name
-                
-                try:
-                    # 导入并初始化PaddleOCR（这会触发模型下载）
-                    from paddleocr import PaddleOCR
-                    
-                    logger.info("📥 PaddleOCR模型下载中，请稍候...")
-                    
-                    # 创建OCR实例（会自动下载模型）
-                    ocr = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=False, show_log=False)
-                    
-                    # 测试OCR功能
-                    logger.info("🧪 测试OCR功能...")
-                    results = ocr.ocr(temp_image_path, cls=True)
-                    
-                    logger.info("✅ OCR模型预加载成功")
-                    self.success_messages.append("OCR模型已预加载并测试通过")
-                    
-                    # 清理临时文件
-                    if os.path.exists(temp_image_path):
-                        os.unlink(temp_image_path)
-                    
-                    return True
-                    
-                except Exception as e:
-                    # 清理临时文件
-                    if os.path.exists(temp_image_path):
-                        os.unlink(temp_image_path)
-                    
-                    logger.error(f"❌ OCR模型预加载失败: {e}")
-                    self.errors.append(f"OCR模型预加载失败: {e}")
-                    self.errors.append("请检查网络连接，PaddleOCR需要下载模型文件")
-                    return False
+            # 逐一检查每个模型
+            for model_display_name, model_key, check_func in model_checks:
+                if model_key in model_config:
+                    logger.info(f"🔍 检查{model_display_name}...")
+                    try:
+                        if check_func(model_config[model_key], model_key):
+                            self.success_messages.append(f"{model_display_name}检查通过")
+                            logger.info(f"✅ {model_display_name}检查通过")
+                        else:
+                            all_models_ok = False
+                            logger.error(f"❌ {model_display_name}检查失败")
+                    except Exception as e:
+                        all_models_ok = False
+                        error_msg = f"{model_display_name}检查异常: {e}"
+                        self.errors.append(error_msg)
+                        logger.error(f"❌ {error_msg}")
+                else:
+                    logger.info(f"⏭️ 跳过未配置的{model_display_name}")
+            
+            if all_models_ok:
+                self.check_results["models"] = True
+                logger.info("✅ 所有模型检查完成")
+                return True
             else:
-                logger.info("✅ OCR模型已存在，跳过下载")
-                # 即使模型存在，也做一个快速测试
-                try:
-                    from paddleocr import PaddleOCR
-                    # 创建OCR实例进行快速验证
-                    ocr = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=False, show_log=False)
-                    logger.info("✅ OCR模型验证通过")
-                    return True
-                except Exception as e:
-                    logger.warning(f"⚠️ OCR模型验证失败: {e}")
-                    self.warnings.append(f"OCR模型验证失败，但将在使用时重试: {e}")
-                    return True
+                logger.warning("⚠️ 部分模型检查失败")
+                return False
                 
         except Exception as e:
-            logger.error(f"❌ OCR检查失败: {e}")
-            self.errors.append(f"OCR检查失败: {e}")
+            self.errors.append(f"模型检查异常: {e}")
+            logger.error(f"❌ 模型检查异常: {e}")
             return False
     
     def generate_report(self) -> str:
@@ -396,6 +506,345 @@ class EnvironmentChecker:
             recommendations.append("🎉 环境检查全部通过，系统已准备就绪！")
         
         return recommendations
+
+    # ===== 辅助方法 =====
+    
+    def _verify_mysql_tables(self, mysql_manager) -> bool:
+        """验证MySQL表结构完整性"""
+        try:
+            required_tables = [
+                'files', 'file_chunks', 'processing_logs', 'entities', 
+                'relationships', 'sessions', 'conversations', 'system_config'
+            ]
+            
+            for table_name in required_tables:
+                result = mysql_manager.execute_query("""
+                    SELECT COUNT(*) as count 
+                    FROM information_schema.tables 
+                    WHERE table_schema = %s AND table_name = %s
+                """, (mysql_manager.config["database"], table_name))
+                
+                if not result or result[0]['count'] == 0:
+                    logger.warning(f"缺少表: {table_name}")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"验证MySQL表结构失败: {e}")
+            return False
+    
+    def _repair_mysql_tables(self, mysql_manager) -> bool:
+        """修复MySQL表结构"""
+        try:
+            logger.info("🔧 开始修复MySQL表结构...")
+            mysql_manager._init_database_tables()
+            time.sleep(2)  # 等待表创建完成
+            return True
+        except Exception as e:
+            logger.error(f"修复MySQL表结构失败: {e}")
+            return False
+    
+    # ===== 新的统一模型检查和下载函数 =====
+    
+    def _check_and_download_embedding_model(self, model_config: dict, model_key: str) -> bool:
+        """统一的嵌入模型检查和下载逻辑"""
+        try:
+            model_name = model_config.get("model_name", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+            model_path = model_config.get("model_path", "models/embedding")
+            
+            logger.info(f"📍 检查嵌入模型: {model_name}")
+            logger.info(f"📁 本地路径: {model_path}")
+            
+            # 1. 检查项目models目录中的模型
+            if self._verify_embedding_model_integrity(model_path):
+                logger.info(f"✅ 嵌入模型已存在且完整: {model_path}")
+                return True
+            
+            # 2. 尝试从本地缓存加载或从网络下载
+            logger.info("📥 开始下载嵌入模型...")
+            try:
+                from sentence_transformers import SentenceTransformer
+                
+                # 创建模型目录
+                os.makedirs(model_path, exist_ok=True)
+                
+                # 下载模型（会自动使用HuggingFace缓存）
+                model = SentenceTransformer(model_name)
+                
+                # 保存到项目models目录
+                model.save(model_path)
+                
+                # 验证下载结果
+                if self._verify_embedding_model_integrity(model_path):
+                    logger.info("✅ 嵌入模型下载并验证成功")
+                    return True
+                else:
+                    self.errors.append("嵌入模型下载后验证失败")
+                    return False
+                    
+            except ImportError:
+                self.errors.append("sentence-transformers库未安装")
+                return False
+            except Exception as e:
+                self.errors.append(f"嵌入模型下载失败: {e}")
+                return False
+                
+        except Exception as e:
+            self.errors.append(f"嵌入模型检查异常: {e}")
+            return False
+    
+    def _check_and_download_ocr_model(self, model_config: dict, model_key: str) -> bool:
+        """统一的OCR模型检查和下载逻辑"""
+        try:
+            model_path = model_config.get("model_path", "models/ocr")
+            
+            logger.info("📖 检查PaddleOCR模型")
+            logger.info(f"📁 本地路径: {model_path}")
+            
+            # 1. 检查项目models目录中的模型
+            if self._verify_paddleocr_model_integrity(model_path):
+                logger.info(f"✅ PaddleOCR模型已存在且完整: {model_path}")
+                return True
+            
+            # 2. 检查系统缓存目录
+            paddleocr_cache = os.path.expanduser("~/.paddleocr/")
+            if os.path.exists(paddleocr_cache) and os.listdir(paddleocr_cache):
+                logger.info("✅ PaddleOCR系统缓存模型存在")
+                # 对于PaddleOCR，如果系统缓存存在就认为可用
+                return True
+            
+            # 3. 验证PaddleOCR库是否可用
+            try:
+                from paddleocr import PaddleOCR
+                logger.info("📥 PaddleOCR模型将在首次使用时自动下载")
+                # PaddleOCR会在首次使用时自动下载模型到系统缓存
+                return True
+            except ImportError:
+                self.errors.append("PaddleOCR库未安装")
+                return False
+                
+        except Exception as e:
+            self.errors.append(f"PaddleOCR模型检查异常: {e}")
+            return False
+    
+
+    
+    def _check_and_download_transformers_model(self, model_config: dict, model_key: str) -> bool:
+        """统一的Transformers模型检查和下载逻辑"""
+        try:
+            model_name = model_config.get("model_name")
+            model_path = model_config.get("model_path")
+            
+            if not model_name or not model_path:
+                self.errors.append(f"{model_key}模型配置不完整")
+                return False
+            
+            logger.info(f"🤖 检查{model_key}模型: {model_name}")
+            logger.info(f"📁 本地路径: {model_path}")
+            
+            # 1. 检查项目models目录中的模型
+            if self._verify_transformers_model_integrity(model_path):
+                logger.info(f"✅ {model_key}模型已存在且完整: {model_path}")
+                return True
+            
+            # 2. 尝试下载模型
+            logger.info(f"📥 开始下载{model_key}模型...")
+            try:
+                # 根据不同模型类型选择合适的类
+                success = self._download_transformers_model(model_name, model_path, model_key)
+                
+                if success and self._verify_transformers_model_integrity(model_path):
+                    logger.info(f"✅ {model_key}模型下载并验证成功")
+                    return True
+                else:
+                    self.errors.append(f"{model_key}模型下载失败或验证不通过")
+                    return False
+                    
+            except ImportError:
+                self.errors.append("transformers库未安装")
+                return False
+            except Exception as e:
+                self.errors.append(f"{model_key}模型下载失败: {e}")
+                return False
+                
+        except Exception as e:
+            self.errors.append(f"{model_key}模型检查异常: {e}")
+            return False
+    
+    # ===== 模型完整性验证函数 =====
+    
+    def _verify_embedding_model_integrity(self, model_path: str) -> bool:
+        """验证嵌入模型完整性"""
+        try:
+            if not os.path.exists(model_path):
+                return False
+                
+            # 检查必需的文件
+            required_files = [
+                "pytorch_model.bin",    # 模型权重
+                "config.json",          # 模型配置
+                "tokenizer.json",       # 分词器
+                "sentence_bert_config.json"  # SentenceTransformer配置
+            ]
+            
+            for file_name in required_files:
+                file_path = os.path.join(model_path, file_name)
+                if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                    logger.debug(f"嵌入模型缺少文件: {file_name}")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"验证嵌入模型完整性失败: {e}")
+            return False
+    
+    def _verify_paddleocr_model_integrity(self, model_path: str) -> bool:
+        """验证PaddleOCR模型完整性"""
+        try:
+            if not os.path.exists(model_path):
+                return False
+                
+            # 检查PaddleOCR模型目录结构
+            det_dir = os.path.join(model_path, "det")
+            rec_dir = os.path.join(model_path, "rec") 
+            cls_dir = os.path.join(model_path, "cls")
+            
+            # 至少需要检测和识别模型
+            det_exists = os.path.exists(det_dir) and os.listdir(det_dir)
+            rec_exists = os.path.exists(rec_dir) and os.listdir(rec_dir)
+            
+            return det_exists and rec_exists
+            
+        except Exception as e:
+            logger.error(f"验证PaddleOCR模型完整性失败: {e}")
+            return False
+    
+    def _verify_transformers_model_integrity(self, model_path: str) -> bool:
+        """验证Transformers模型完整性"""
+        try:
+            if not os.path.exists(model_path):
+                return False
+                
+            # 检查基本文件
+            config_path = os.path.join(model_path, "config.json")
+            
+            # 至少需要配置文件
+            if not os.path.exists(config_path) or os.path.getsize(config_path) == 0:
+                return False
+            
+            # 检查模型权重文件（可能是pytorch_model.bin、model.safetensors等）
+            weight_files = [
+                "pytorch_model.bin",
+                "model.safetensors", 
+                "tf_model.h5"
+            ]
+            
+            has_weights = False
+            for weight_file in weight_files:
+                weight_path = os.path.join(model_path, weight_file)
+                if os.path.exists(weight_path) and os.path.getsize(weight_path) > 0:
+                    has_weights = True
+                    break
+            
+            return has_weights
+            
+        except Exception as e:
+            logger.error(f"验证Transformers模型完整性失败: {e}")
+            return False
+    
+    # ===== Transformers模型下载函数 =====
+    
+    def _download_transformers_model(self, model_name: str, model_path: str, model_key: str) -> bool:
+        """下载Transformers模型"""
+        try:
+            from transformers import AutoConfig, AutoModel, AutoProcessor, AutoTokenizer
+            
+            # 创建模型目录
+            os.makedirs(model_path, exist_ok=True)
+            
+            logger.info(f"下载模型: {model_name} -> {model_path}")
+            
+            # 根据不同模型类型选择合适的下载方式
+            if model_key == "table_detection":
+                # 表格检测模型
+                from transformers import DetrImageProcessor, TableTransformerForObjectDetection
+                processor = DetrImageProcessor.from_pretrained(model_name)
+                model = TableTransformerForObjectDetection.from_pretrained(model_name)
+                processor.save_pretrained(model_path)
+                model.save_pretrained(model_path)
+                
+            elif model_key == "image_analysis":
+                # 图像分析模型
+                try:
+                    processor = AutoProcessor.from_pretrained(model_name)
+                    processor.save_pretrained(model_path)
+                except:
+                    # 如果AutoProcessor不支持，尝试分别下载
+                    tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    tokenizer.save_pretrained(model_path)
+                
+                model = AutoModel.from_pretrained(model_name)
+                model.save_pretrained(model_path)
+                
+            elif model_key == "chart_recognition":
+                # 图表识别模型
+                try:
+                    processor = AutoProcessor.from_pretrained(model_name)
+                    processor.save_pretrained(model_path)
+                except:
+                    tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    tokenizer.save_pretrained(model_path)
+                
+                model = AutoModel.from_pretrained(model_name)
+                model.save_pretrained(model_path)
+                
+            else:
+                # 通用下载方式
+                config = AutoConfig.from_pretrained(model_name)
+                config.save_pretrained(model_path)
+                
+                model = AutoModel.from_pretrained(model_name)
+                model.save_pretrained(model_path)
+                
+                try:
+                    tokenizer = AutoTokenizer.from_pretrained(model_name)
+                    tokenizer.save_pretrained(model_path)
+                except:
+                    logger.warning(f"无法下载{model_name}的分词器")
+            
+            logger.info(f"模型下载完成: {model_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"下载{model_key}模型失败: {e}")
+            return False
+    
+    def _verify_all_checks(self) -> bool:
+        """验证所有检查项是否通过"""
+        try:
+            logger.info("🔄 最终验证所有检查项...")
+            
+            required_checks = ["mysql", "milvus", "neo4j", "deepseek", "models"]
+            failed_checks = []
+            
+            for check in required_checks:
+                if not self.check_results.get(check, False):
+                    failed_checks.append(check)
+            
+            if failed_checks:
+                logger.warning(f"⚠️ 以下检查项未通过: {', '.join(failed_checks)}")
+                self.warnings.append(f"部分检查项未通过: {', '.join(failed_checks)}")
+                return False
+            else:
+                logger.info("✅ 所有检查项验证通过")
+                self.success_messages.append("所有环境检查项验证通过")
+                return True
+                
+        except Exception as e:
+            logger.error(f"最终验证失败: {e}")
+            return False
 
 # 全局实例
 environment_checker = EnvironmentChecker() 

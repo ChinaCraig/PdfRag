@@ -1,77 +1,63 @@
 """
-配置加载工具类
-用于加载YAML配置文件
+简化配置加载器
+只保留基本的配置加载功能，移除复杂的硬件检测和性能优化
 """
-import yaml
 import os
-from typing import Dict, Any
+import yaml
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ConfigLoader:
-    """配置加载器"""
+    """简化的配置加载器"""
     
-    def __init__(self, config_dir: str = "config"):
-        self.config_dir = config_dir
-        self._configs = {}
+    def __init__(self):
+        self.config_cache = {}
+        self._load_all_configs()
     
-    def load_config(self, config_name: str) -> Dict[str, Any]:
-        """
-        加载指定的配置文件
+    def _load_all_configs(self):
+        """加载所有配置文件"""
+        config_files = {
+            'app': 'config/config.yaml',
+            'db': 'config/db.yaml', 
+            'model': 'config/model.yaml',
+            'prompt': 'config/prompt.yaml'
+        }
         
-        Args:
-            config_name: 配置文件名（不包含.yaml扩展名）
-            
-        Returns:
-            配置字典
-        """
-        if config_name in self._configs:
-            return self._configs[config_name]
-        
-        config_path = os.path.join(self.config_dir, f"{config_name}.yaml")
-        
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"配置文件不存在: {config_path}")
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        
-        self._configs[config_name] = config
-        return config
+        for config_name, config_path in config_files.items():
+            try:
+                if os.path.exists(config_path):
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        self.config_cache[config_name] = yaml.safe_load(f) or {}
+                else:
+                    self.config_cache[config_name] = {}
+                    logger.warning(f"配置文件不存在: {config_path}")
+            except Exception as e:
+                logger.error(f"加载配置文件失败 {config_path}: {e}")
+                self.config_cache[config_name] = {}
     
-    def get_db_config(self) -> Dict[str, Any]:
-        """获取数据库配置"""
-        return self.load_config("db")
-    
-    def get_model_config(self) -> Dict[str, Any]:
-        """获取模型配置"""
-        return self.load_config("model")
-    
-    def get_app_config(self) -> Dict[str, Any]:
+    def get_app_config(self):
         """获取应用配置"""
-        return self.load_config("config")
+        return self.config_cache.get('app', {})
     
-    def get_prompt_config(self) -> Dict[str, Any]:
+    def get_db_config(self):
+        """获取数据库配置"""
+        return self.config_cache.get('db', {})
+    
+    def get_model_config(self):
+        """获取模型配置"""
+        return self.config_cache.get('model', {})
+    
+    def get_prompt_config(self):
         """获取提示词配置"""
-        return self.load_config("prompt")
+        return self.config_cache.get('prompt', {})
     
-    def reload_config(self, config_name: str = None) -> None:
+    def get_nested_value(self, path: str, default=None):
         """
-        重新加载配置
+        通过路径获取嵌套配置值
         
         Args:
-            config_name: 要重新加载的配置名，None表示重新加载所有
-        """
-        if config_name:
-            if config_name in self._configs:
-                del self._configs[config_name]
-        else:
-            self._configs.clear()
-    
-    def get_nested_value(self, path: str, default: Any = None) -> Any:
-        """
-        获取嵌套配置值
-        
-        Args:
-            path: 配置路径，用点分隔，格式如 "model.embedding"
+            path: 配置路径，如 'model.embedding.dimensions'
             default: 默认值
             
         Returns:
@@ -79,23 +65,27 @@ class ConfigLoader:
         """
         try:
             parts = path.split('.')
-            config_name = parts[0]
+            config_type = parts[0]
             
-            # 加载配置
-            config = self.load_config(config_name)
+            if config_type not in self.config_cache:
+                return default
             
-            # 逐层获取嵌套值
-            current = config
+            value = self.config_cache[config_type]
             for part in parts[1:]:
-                if isinstance(current, dict) and part in current:
-                    current = current[part]
+                if isinstance(value, dict) and part in value:
+                    value = value[part]
                 else:
                     return default
             
-            return current
-            
-        except Exception:
+            return value
+        except Exception as e:
+            logger.debug(f"获取配置值失败 {path}: {e}")
             return default
+    
+    def reload_config(self):
+        """重新加载配置"""
+        self._load_all_configs()
+        logger.info("配置已重新加载")
 
 # 全局配置加载器实例
-config_loader = ConfigLoader() 
+config_loader = ConfigLoader()

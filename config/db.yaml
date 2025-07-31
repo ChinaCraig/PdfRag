@@ -1,22 +1,22 @@
 # MySQL数据库配置文件
 mysql:
-  host: "192.168.2.100"
+  host: "192.168.16.26"
   port: 3306
   username: "root"
-  password: "zhang"
+  password: "!200808Xx"
   database: "pdf_rag"
   charset: "utf8mb4"
   
 # Milvus向量数据库配置
 milvus:
-  host: "192.168.2.100"
+  host: "192.168.16.26"
   port: 19530
   database: "pdf_ai_doc"
   collection: "pdf_doc"
   
 # Neo4j图数据库配置
 neo4j:
-  uri: "bolt://192.168.2.100:7687"
+  uri: "bolt://192.168.16.26:7687"
   username: "neo4j"
-  password: "zhang123456"
+  password: "!200808Xx"
   database: "neo4j" 
