@@ -89,26 +89,32 @@ class GraphRAGService:
             
             # 第二步：生成嵌入向量
             logger.info(f"🔤 步骤2: 生成嵌入向量")
-            self._generate_embeddings_for_chunks(content_chunks)
+            self._generate_embeddings_for_chunks(content_chunks, file_id)
             self._update_processing_status(file_id, "processing", 50, "嵌入向量生成完成")
             
             # 第三步：保存到向量数据库
             logger.info(f"💾 步骤3: 保存到向量数据库")
-            self._save_chunks_to_vector_db(content_chunks)
+            self._save_chunks_to_vector_db(content_chunks, file_id)
             self._update_processing_status(file_id, "processing", 65, "向量数据保存完成")
             
             # 第四步：知识图谱构建
             logger.info(f"🧠 步骤4: 知识图谱构建")
+            self._update_processing_status(file_id, "processing", 67, "🧠 开始构建知识图谱...")
             kg_result = self._build_knowledge_graph(content_chunks, file_id)
-            self._update_processing_status(file_id, "processing", 85, 
-                                         f"知识图谱构建完成：{kg_result['entities_count']}个实体，{kg_result['relations_count']}个关系")
+            self._update_processing_status(file_id, "processing", 86, 
+                                         f"🧠 知识图谱构建完成：整理出{kg_result['entities_count']}个实体，{kg_result['relations_count']}个关系")
             
             # 第五步：保存到图数据库
             logger.info(f"🕸️ 步骤5: 保存到图数据库")
+            self._update_processing_status(file_id, "processing", 88, 
+                                         f"🕸️ 开始保存{kg_result['entities_count']}个实体和{kg_result['relations_count']}个关系到Neo4j...")
             self._save_knowledge_graph_to_db(kg_result["entities"], kg_result["relations"], file_id)
+            self._update_processing_status(file_id, "processing", 98, 
+                                         f"🕸️ 知识图谱保存完成，共存储{kg_result['entities_count']}个实体和{kg_result['relations_count']}个关系")
             
             # 更新最终状态
-            self._update_processing_status(file_id, "completed", 100, "GraphRAG处理完成")
+            total_statistics = f"处理完成！共提取{len(content_chunks)}个内容块，生成{kg_result['entities_count']}个实体，{kg_result['relations_count']}个关系"
+            self._update_processing_status(file_id, "completed", 100, f"🎉 GraphRAG {total_statistics}")
             
             result = {
                 "success": True,
@@ -154,30 +160,65 @@ class GraphRAGService:
             total_pages = len(doc)
             logger.info(f"📄 PDF共{total_pages}页")
             
+            # 初始状态
+            self._update_processing_status(file_id, "processing", 5, 
+                                         f"📄 开始提取PDF内容，共{total_pages}页")
+            
             for page_num in range(total_pages):
                 logger.info(f"📖 处理第{page_num + 1}/{total_pages}页")
                 page = doc[page_num]
                 
                 # 提取文本内容
+                self._update_processing_status(file_id, "processing", 
+                                             5 + int((page_num + 0.2) / total_pages * 25), 
+                                             f"📖 正在提取第{page_num + 1}页文本内容...")
                 text_chunks = self._extract_text_content(page, file_id, page_num)
                 content_chunks.extend(text_chunks)
                 
                 # 提取图像内容
+                self._update_processing_status(file_id, "processing", 
+                                             5 + int((page_num + 0.4) / total_pages * 25), 
+                                             f"🖼️ 正在提取第{page_num + 1}页图像内容...")
                 image_chunks = self._extract_image_content(page, file_id, page_num)
                 content_chunks.extend(image_chunks)
                 
                 # 提取表格内容
+                self._update_processing_status(file_id, "processing", 
+                                             5 + int((page_num + 0.6) / total_pages * 25), 
+                                             f"📊 正在提取第{page_num + 1}页表格内容...")
                 table_chunks = self._extract_table_content(page, file_id, page_num)
                 content_chunks.extend(table_chunks)
                 
                 # 提取图表内容
+                self._update_processing_status(file_id, "processing", 
+                                             5 + int((page_num + 0.8) / total_pages * 25), 
+                                             f"📈 正在提取第{page_num + 1}页图表内容...")
                 chart_chunks = self._extract_chart_content(page, file_id, page_num)
                 content_chunks.extend(chart_chunks)
                 
-                # 更新进度
-                progress = 10 + int((page_num + 1) / total_pages * 20)
-                self._update_processing_status(file_id, "processing", progress, 
-                                             f"已处理{page_num + 1}/{total_pages}页")
+                # 页面处理完成 - 显示当前页发现的内容统计
+                page_text_count = len([c for c in text_chunks])
+                page_image_count = len([c for c in image_chunks])
+                page_table_count = len([c for c in table_chunks])
+                page_chart_count = len([c for c in chart_chunks])
+                
+                page_summary = []
+                if page_text_count > 0:
+                    page_summary.append(f"{page_text_count}个文本块")
+                if page_image_count > 0:
+                    page_summary.append(f"{page_image_count}个图像")
+                if page_table_count > 0:
+                    page_summary.append(f"{page_table_count}个表格")
+                if page_chart_count > 0:
+                    page_summary.append(f"{page_chart_count}个图表")
+                
+                progress = 5 + int((page_num + 1) / total_pages * 25)
+                if page_summary:
+                    status_message = f"✅ 第{page_num + 1}/{total_pages}页完成，发现{', '.join(page_summary)}"
+                else:
+                    status_message = f"✅ 第{page_num + 1}/{total_pages}页完成"
+                
+                self._update_processing_status(file_id, "processing", progress, status_message)
             
             doc.close()
             
@@ -859,37 +900,73 @@ class GraphRAGService:
             logger.error(f"保存图表失败: {e}")
             return None
     
-    def _generate_embeddings_for_chunks(self, chunks: List[Dict[str, Any]]) -> None:
+    def _generate_embeddings_for_chunks(self, chunks: List[Dict[str, Any]], file_id: str) -> None:
         """为内容块生成嵌入向量"""
         try:
             # 提取文本内容
             texts = [chunk["content"] for chunk in chunks]
-            logger.info(f"🔤 开始生成{len(texts)}个内容块的嵌入向量...")
+            total_chunks = len(texts)
+            logger.info(f"🔤 开始生成{total_chunks}个内容块的嵌入向量...")
             
-            # 批量生成嵌入向量
-            embeddings = model_manager.get_embedding(texts)
+            # 初始状态更新
+            self._update_processing_status(file_id, "processing", 32, 
+                                         f"🔤 准备为{total_chunks}个内容块生成嵌入向量...")
+            
+            # 分批处理嵌入向量生成，避免内存过载
+            batch_size = 50  # 每批处理50个文本
+            all_embeddings = []
+            total_batches = (total_chunks + batch_size - 1) // batch_size
+            
+            for i in range(0, total_chunks, batch_size):
+                batch_texts = texts[i:i + batch_size]
+                current_batch = i // batch_size + 1
+                batch_progress = 32 + int((i / total_chunks) * 18)  # 32% 到 50%
+                
+                self._update_processing_status(file_id, "processing", batch_progress, 
+                                             f"🔤 正在生成第{current_batch}/{total_batches}批嵌入向量 ({i+1}-{min(i+batch_size, total_chunks)}/{total_chunks})")
+                
+                # 生成当前批次的嵌入向量
+                batch_embeddings = model_manager.get_embedding(batch_texts)
+                all_embeddings.extend(batch_embeddings)
+                
+                logger.info(f"🔤 完成批次 {current_batch}/{total_batches}")
             
             # 分配给各个块
-            for chunk, embedding in zip(chunks, embeddings):
+            for chunk, embedding in zip(chunks, all_embeddings):
                 chunk["embedding"] = embedding
             
-            logger.info(f"✅ 嵌入向量生成完成，共{len(embeddings)}个768维向量")
+            logger.info(f"✅ 嵌入向量生成完成，共{len(all_embeddings)}个768维向量")
             
         except Exception as e:
             logger.error(f"❌ 嵌入向量生成失败: {e}")
             raise
     
-    def _save_chunks_to_vector_db(self, chunks: List[Dict[str, Any]]) -> None:
+    def _save_chunks_to_vector_db(self, chunks: List[Dict[str, Any]], file_id: str) -> None:
         """保存内容块到向量数据库"""
         try:
+            total_chunks = len(chunks)
+            logger.info(f"💾 开始保存{total_chunks}个向量到Milvus数据库...")
+            
+            # 初始状态更新
+            self._update_processing_status(file_id, "processing", 52, 
+                                         "💾 正在连接向量数据库...")
+            
             # 确保Milvus连接
             if not milvus_manager.collection:
                 logger.info("初始化Milvus连接...")
                 milvus_manager.connect()
             
+            self._update_processing_status(file_id, "processing", 55, 
+                                         f"💾 准备保存{total_chunks}个向量到Milvus数据库...")
+            
             # 准备向量数据
             vector_data = []
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
+                if i % 100 == 0:  # 每100个chunk更新一次进度
+                    prep_progress = 55 + int((i / total_chunks) * 5)  # 55% 到 60%
+                    self._update_processing_status(file_id, "processing", prep_progress, 
+                                                 f"💾 正在准备向量数据 ({i+1}/{total_chunks})")
+                
                 vector_data.append({
                     "file_id": chunk["file_id"],
                     "chunk_id": chunk["chunk_id"],
@@ -898,8 +975,23 @@ class GraphRAGService:
                     "metadata": json.dumps(chunk.get("metadata", {}))
                 })
             
-            # 插入数据
-            milvus_manager.insert_vectors(vector_data)
+            self._update_processing_status(file_id, "processing", 60, 
+                                         f"💾 开始批量插入{total_chunks}个向量到数据库...")
+            
+            # 分批插入数据，避免一次性插入过多数据
+            batch_size = 100
+            total_insert_batches = (len(vector_data) + batch_size - 1) // batch_size
+            for i in range(0, len(vector_data), batch_size):
+                batch_data = vector_data[i:i + batch_size]
+                current_insert_batch = i // batch_size + 1
+                insert_progress = 60 + int((i / len(vector_data)) * 5)  # 60% 到 65%
+                
+                self._update_processing_status(file_id, "processing", insert_progress, 
+                                             f"💾 正在插入第{current_insert_batch}/{total_insert_batches}批向量数据 ({i+1}-{min(i+batch_size, len(vector_data))}/{len(vector_data)})")
+                
+                milvus_manager.insert_vectors(batch_data)
+                logger.info(f"💾 插入批次 {current_insert_batch}/{total_insert_batches}")
+            
             logger.info(f"✅ 成功保存{len(vector_data)}个向量到Milvus")
             
         except Exception as e:
@@ -915,36 +1007,59 @@ class GraphRAGService:
             table_chunks = [c for c in chunks if c["content_type"] == "table"]
             chart_chunks = [c for c in chunks if c["content_type"] == "chart"]
             
+            self._update_processing_status(file_id, "processing", 68, 
+                                         f"🧠 开始分析内容：文本{len(text_chunks)}块，表格{len(table_chunks)}个，图像{len(image_chunks)}个，图表{len(chart_chunks)}个")
+            
             all_entities = []
             all_relations = []
             
             # 从文本中提取实体和关系
             if text_chunks:
+                self._update_processing_status(file_id, "processing", 70, 
+                                             f"🧠 正在从{len(text_chunks)}个文本块提取实体和关系...")
                 text_entities, text_relations = self._extract_entities_relations_from_text(text_chunks)
                 all_entities.extend(text_entities)
                 all_relations.extend(text_relations)
+                self._update_processing_status(file_id, "processing", 75, 
+                                             f"📝 文本分析完成：发现{len(text_entities)}个实体，{len(text_relations)}个关系")
             
             # 从表格中提取实体和关系
             if table_chunks:
+                self._update_processing_status(file_id, "processing", 77, 
+                                             f"📊 正在从{len(table_chunks)}个表格提取实体和关系...")
                 table_entities, table_relations = self._extract_entities_relations_from_tables(table_chunks)
                 all_entities.extend(table_entities)
                 all_relations.extend(table_relations)
+                self._update_processing_status(file_id, "processing", 79, 
+                                             f"📊 表格分析完成：发现{len(table_entities)}个实体，{len(table_relations)}个关系")
             
             # 从图像中提取实体
             if image_chunks:
+                self._update_processing_status(file_id, "processing", 80, 
+                                             f"🖼️ 正在从{len(image_chunks)}个图像识别实体...")
                 image_entities = self._extract_entities_from_images(image_chunks)
                 all_entities.extend(image_entities)
+                self._update_processing_status(file_id, "processing", 81, 
+                                             f"🖼️ 图像分析完成：识别出{len(image_entities)}个实体")
             
             # 从图表中提取实体和关系
             if chart_chunks:
+                self._update_processing_status(file_id, "processing", 82, 
+                                             f"📈 正在从{len(chart_chunks)}个图表提取实体和关系...")
                 chart_entities, chart_relations = self._extract_entities_relations_from_charts(chart_chunks)
                 all_entities.extend(chart_entities)
                 all_relations.extend(chart_relations)
+                self._update_processing_status(file_id, "processing", 83, 
+                                             f"📈 图表分析完成：发现{len(chart_entities)}个实体，{len(chart_relations)}个关系")
             
             # 实体去重和合并
+            self._update_processing_status(file_id, "processing", 84, 
+                                         f"🔗 正在整理实体去重，原始发现{len(all_entities)}个实体...")
             deduplicated_entities = self._deduplicate_entities(all_entities)
             
             # 关系优化
+            self._update_processing_status(file_id, "processing", 85, 
+                                         f"🔗 正在优化关系连接，原始发现{len(all_relations)}个关系...")
             optimized_relations = self._optimize_relations(all_relations, deduplicated_entities)
             
             logger.info(f"✅ 知识图谱构建完成：{len(deduplicated_entities)}个实体，{len(optimized_relations)}个关系")

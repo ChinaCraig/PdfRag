@@ -259,19 +259,46 @@ class FileService:
         Returns:
             处理状态信息
         """
-        # 从数据库获取状态
+        # 从数据库获取基本状态
         file_info = self._get_file_info(file_id)
-        if file_info:
+        if not file_info:
             return {
-                "status": file_info["status"],
-                "progress": file_info["processing_progress"],
-                "message": "处理中..." if file_info["status"] == "processing" else "处理完成"
+                "status": "not_found",
+                "progress": 0,
+                "message": "文件不存在"
             }
         
+        # 如果文件正在处理中，从GraphRAG服务获取详细状态
+        if file_info["status"] == "processing":
+            try:
+                # 导入GraphRAG服务获取详细状态
+                from app.service.GraphRAGService import graphrag_service
+                
+                # 获取GraphRAG服务中的详细进度状态
+                graphrag_status = graphrag_service.get_processing_status(file_id)
+                
+                # 如果GraphRAG服务有详细状态，使用它；否则使用数据库状态
+                if graphrag_status.get("status") != "unknown":
+                    return {
+                        "status": file_info["status"],  # 保持数据库中的状态
+                        "progress": graphrag_status.get("progress", file_info["processing_progress"]),
+                        "message": graphrag_status.get("message", "处理中...")
+                    }
+            except Exception as e:
+                logger.warning(f"获取GraphRAG详细状态失败: {e}")
+        
+        # 返回数据库中的基本状态信息
+        default_messages = {
+            "uploaded": "📄 等待开始GraphRAG处理...",
+            "processing": "🚀 正在进行GraphRAG处理...",
+            "completed": "✅ 处理完成",
+            "failed": "❌ 处理失败"
+        }
+        
         return {
-            "status": "not_found",
-            "progress": 0,
-            "message": "文件不存在"
+            "status": file_info["status"],
+            "progress": file_info["processing_progress"],
+            "message": default_messages.get(file_info["status"], "状态未知")
         }
     
     def get_file_detailed_info(self, file_id: str) -> Dict[str, Any]:

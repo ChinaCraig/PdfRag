@@ -66,9 +66,9 @@ function initializeFileUpload() {
         e.preventDefault();
         uploadArea.classList.remove('dragover');
         
-        const files = e.dataTransfer.files;
+        const files = Array.from(e.dataTransfer.files);
         if (files.length > 0) {
-            handleFileUpload(files[0]);
+            handleMultipleFileUpload(files);
         }
     });
     
@@ -78,8 +78,10 @@ function initializeFileUpload() {
         console.log('事件对象:', e);
         
         if (e.target.files.length > 0) {
-            console.log('选择的文件:', e.target.files[0].name);
-            handleFileUpload(e.target.files[0]);
+            // 支持多文件上传
+            const files = Array.from(e.target.files);
+            console.log('选择的文件:', files.map(f => f.name));
+            handleMultipleFileUpload(files);
         } else {
             console.log('没有选择文件');
         }
@@ -93,27 +95,114 @@ function initializeFileUpload() {
 }
 
 /**
- * 处理文件上传
+ * 处理多文件上传
+ */
+async function handleMultipleFileUpload(files) {
+    console.log('开始上传多个文件:', files.map(f => f.name));
+    
+    // 过滤有效文件
+    const validFiles = [];
+    const invalidFiles = [];
+    
+    files.forEach(file => {
+        const validation = validateSingleFile(file);
+        if (validation.valid) {
+            validFiles.push(file);
+        } else {
+            invalidFiles.push({file: file, error: validation.message});
+        }
+    });
+    
+    // 显示无效文件的错误
+    if (invalidFiles.length > 0) {
+        const errorMessages = invalidFiles.map(item => 
+            `${item.file.name}: ${item.error}`
+        );
+        showNotification(`以下文件无效：\n${errorMessages.join('\n')}`, 'error');
+    }
+    
+    if (validFiles.length === 0) {
+        return;
+    }
+    
+    // 显示上传进度
+    showNotification(`开始上传${validFiles.length}个文件...`, 'info');
+    
+    // 并发上传文件（限制并发数量）
+    const concurrentLimit = 3; // 最多同时上传3个文件
+    let successCount = 0;
+    let errorCount = 0;
+    
+    try {
+        for (let i = 0; i < validFiles.length; i += concurrentLimit) {
+            const batch = validFiles.slice(i, i + concurrentLimit);
+            const uploadPromises = batch.map(file => handleFileUpload(file));
+            
+            const results = await Promise.allSettled(uploadPromises);
+            
+            results.forEach((result, index) => {
+                if (result.status === 'fulfilled' && result.value) {
+                    successCount++;
+                } else {
+                    errorCount++;
+                    console.error(`文件 ${batch[index].name} 上传失败:`, result.reason);
+                }
+            });
+            
+            // 更新进度通知
+            const totalProcessed = i + batch.length;
+            if (totalProcessed < validFiles.length) {
+                showNotification(
+                    `已处理 ${totalProcessed}/${validFiles.length} 个文件，成功 ${successCount} 个`, 
+                    'info'
+                );
+            }
+        }
+        
+        // 清空文件输入
+        document.getElementById('fileInput').value = '';
+        
+        // 刷新文件列表
+        await refreshFileList();
+        
+        // 显示最终结果
+        if (successCount > 0 && errorCount === 0) {
+            showNotification(`所有 ${successCount} 个文件上传成功！`, 'success');
+        } else if (successCount > 0 && errorCount > 0) {
+            showNotification(`${successCount} 个文件上传成功，${errorCount} 个文件失败`, 'warning');
+        } else {
+            showNotification(`所有 ${errorCount} 个文件上传失败`, 'error');
+        }
+        
+    } catch (error) {
+        console.error('批量文件上传失败:', error);
+        showNotification('批量文件上传失败，请重试', 'error');
+    }
+}
+
+/**
+ * 验证单个文件
+ */
+function validateSingleFile(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+        return { valid: false, message: '只支持PDF格式文件' };
+    }
+    
+    const maxSize = 100 * 1024 * 1024; // 100MB
+    if (file.size > maxSize) {
+        return { valid: false, message: '文件大小不能超过100MB' };
+    }
+    
+    return { valid: true };
+}
+
+/**
+ * 处理单个文件上传
  */
 async function handleFileUpload(file) {
     console.log('开始上传文件:', file.name);
     
-    // 验证文件类型
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-        showNotification('只支持PDF格式文件', 'error');
-        return;
-    }
-    
-    // 验证文件大小 (100MB)
-    const maxSize = 100 * 1024 * 1024;
-    if (file.size > maxSize) {
-        showNotification('文件大小不能超过100MB', 'error');
-        return;
-    }
-    
     try {
-        showLoading('正在上传文件...');
-        
         // 创建FormData
         const formData = new FormData();
         formData.append('file', file);
@@ -121,25 +210,17 @@ async function handleFileUpload(file) {
         // 上传文件
         const result = await window.Http.postFile('/api/file/upload', formData);
         
-        hideLoading();
-        
         if (result.success) {
-            showNotification('文件上传成功，开始处理...', 'success');
-            
-            // 清空文件输入
-            document.getElementById('fileInput').value = '';
-            
-            // 刷新文件列表
-            await refreshFileList();
-            
+            console.log(`文件 ${file.name} 上传成功`);
+            return true;
         } else {
-            showNotification(result.message || '文件上传失败', 'error');
+            console.error(`文件 ${file.name} 上传失败:`, result.message);
+            return false;
         }
         
     } catch (error) {
-        hideLoading();
-        console.error('文件上传失败:', error);
-        showNotification('文件上传失败，请重试', 'error');
+        console.error(`文件 ${file.name} 上传失败:`, error);
+        return false;
     }
 }
 
@@ -195,6 +276,11 @@ function createFileItem(file) {
     const statusText = getStatusText(file.status);
     const progress = file.processing_progress || 0;
     
+    // 判断是否需要显示进度条：所有非完成状态都显示进度条
+    const shouldShowProgress = file.status !== 'completed' && file.status !== 'failed';
+    // 优先使用文件数据中的消息，如果没有则使用默认消息
+    const progressMessage = file.message || getProgressMessage(file.status, progress);
+    
     return `
         <div class="file-item" data-file-id="${file.file_id}">
             <div class="file-icon">
@@ -209,9 +295,12 @@ function createFileItem(file) {
             </div>
             <div class="file-status">
                 <span class="status-badge ${statusClass}">${statusText}</span>
-                ${file.status === 'processing' ? `
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progress}%"></div>
+                ${shouldShowProgress ? `
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${progress}%" data-progress="${progress}"></div>
+                        </div>
+                        <div class="progress-text">${progressMessage}</div>
                     </div>
                 ` : ''}
             </div>
@@ -248,7 +337,7 @@ function getStatusClass(status) {
  */
 function getStatusText(status) {
     const statusMap = {
-        'uploaded': '已上传',
+        'uploaded': '等待处理',
         'processing': '处理中',
         'completed': '已完成',
         'failed': '处理失败'
@@ -257,12 +346,44 @@ function getStatusText(status) {
 }
 
 /**
+ * 获取进度消息
+ */
+function getProgressMessage(status, progress) {
+    if (status === 'uploaded') {
+        return '📄 准备开始GraphRAG处理...';
+    } else if (status === 'processing') {
+        // 进度消息将从后台API直接获取，这里提供默认的备用消息
+        if (progress <= 5) {
+            return '🚀 正在启动GraphRAG处理...';
+        } else if (progress <= 30) {
+            return '📖 正在提取PDF内容...';
+        } else if (progress <= 50) {
+            return '🔤 正在生成嵌入向量...';
+        } else if (progress <= 65) {
+            return '💾 正在保存向量数据...';
+        } else if (progress <= 86) {
+            return '🧠 正在构建知识图谱...';
+        } else if (progress < 100) {
+            return '🕸️ 正在保存图数据...';
+        } else {
+            return '🎉 即将完成...';
+        }
+    } else if (status === 'completed') {
+        return '✅ 处理完成';
+    } else if (status === 'failed') {
+        return '❌ 处理失败';
+    }
+    return `${progress}%`;
+}
+
+/**
  * 更新文件状态
  */
 async function updateFileStatus() {
-    const processingFiles = document.querySelectorAll('.status-badge.processing');
+    // 查找所有非完成状态的文件
+    const nonCompletedFiles = document.querySelectorAll('.status-badge:not(.completed):not(.failed)');
     
-    for (const badge of processingFiles) {
+    for (const badge of nonCompletedFiles) {
         const fileItem = badge.closest('.file-item');
         const fileId = fileItem.getAttribute('data-file-id');
         
@@ -291,19 +412,77 @@ function updateFileItemStatus(fileItem, status) {
     statusBadge.className = `status-badge ${statusClass}`;
     statusBadge.textContent = statusText;
     
-    // 更新进度条
-    const progressFill = fileItem.querySelector('.progress-fill');
-    if (progressFill && status.progress !== undefined) {
-        progressFill.style.width = `${status.progress}%`;
-    }
+    const newProgress = status.progress || 0;
+    const shouldShowProgress = status.status !== 'completed' && status.status !== 'failed';
     
-    // 如果处理完成，移除进度条
-    if (status.status === 'completed' || status.status === 'failed') {
-        const progressBar = fileItem.querySelector('.progress-bar');
-        if (progressBar) {
-            progressBar.remove();
+    // 获取或创建进度容器
+    let progressContainer = fileItem.querySelector('.progress-container');
+    
+    if (shouldShowProgress) {
+        if (!progressContainer) {
+            // 创建进度容器
+            const fileStatus = fileItem.querySelector('.file-status');
+            const progressHTML = `
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 0%" data-progress="0"></div>
+                    </div>
+                    <div class="progress-text">${status.message || getProgressMessage(status.status, newProgress)}</div>
+                </div>
+            `;
+            fileStatus.insertAdjacentHTML('beforeend', progressHTML);
+            progressContainer = fileItem.querySelector('.progress-container');
+        }
+        
+        // 更新进度条
+        const progressFill = progressContainer.querySelector('.progress-fill');
+        const progressText = progressContainer.querySelector('.progress-text');
+        
+        if (progressFill) {
+            const currentProgress = parseInt(progressFill.getAttribute('data-progress') || '0');
+            
+            // 使用缓动效果更新进度
+            animateProgress(progressFill, currentProgress, newProgress);
+            progressFill.setAttribute('data-progress', newProgress);
+        }
+        
+        if (progressText) {
+            // 优先使用后台返回的详细消息，如果没有则使用默认消息
+            const messageText = status.message || getProgressMessage(status.status, newProgress);
+            progressText.textContent = messageText;
+        }
+    } else {
+        // 如果处理完成，移除进度条
+        if (progressContainer) {
+            progressContainer.remove();
         }
     }
+}
+
+/**
+ * 进度条缓动动画
+ */
+function animateProgress(element, from, to) {
+    const duration = 800; // 动画持续时间（毫秒）
+    const start = Date.now();
+    const diff = to - from;
+    
+    function update() {
+        const elapsed = Date.now() - start;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // 使用缓出效果
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        const currentValue = from + (diff * easeOut);
+        
+        element.style.width = `${currentValue}%`;
+        
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        }
+    }
+    
+    requestAnimationFrame(update);
 }
 
 /**
