@@ -1386,39 +1386,93 @@ class GraphRAGService:
     def _save_knowledge_graph_to_db(self, entities: List[Dict[str, Any]], relations: List[Dict[str, Any]], file_id: str) -> None:
         """保存知识图谱到数据库"""
         try:
-            # 保存实体到Neo4j
+            total_entities = len(entities)
+            total_relations = len(relations)
+            
+            logger.info(f"🕸️ 开始保存知识图谱: {total_entities}个实体，{total_relations}个关系")
+            
+            # 检查数据库健康状态
+            if not neo4j_manager.health_check():
+                raise Exception("Neo4j数据库健康检查失败，无法保存知识图谱")
+            
+            # 准备实体数据
+            entity_data_list = []
             for entity in entities:
-                entity_data = {
-                    "entity_id": entity["entity_id"],
-                    "name": entity["name"],
-                    "type": entity["type"],
-                    "file_id": file_id,
-                    "confidence": entity["confidence"],
-                    "source_type": entity.get("source_type", "unknown")
-                }
-                neo4j_manager.create_entity(entity["type"], entity_data)
+                try:
+                    entity_data = {
+                        "type": entity.get("type", "UNKNOWN"),
+                        "entity_id": entity.get("entity_id", ""),
+                        "name": entity.get("name", ""),
+                        "file_id": file_id,
+                        "confidence": entity.get("confidence", 0.0),
+                        "source_type": entity.get("source_type", "unknown")
+                    }
+                    
+                    # 验证必需字段
+                    if not entity_data["name"] or not str(entity_data["name"]).strip():
+                        logger.warning(f"跳过无效实体（缺少name）: {entity}")
+                        continue
+                    
+                    entity_data_list.append(entity_data)
+                    
+                except Exception as e:
+                    logger.warning(f"处理实体数据失败，跳过: {entity}, 错误: {e}")
+                    continue
             
-            # 保存关系到Neo4j
-            for relation in relations:
-                subject_entity = {"name": relation["subject"]}
-                object_entity = {"name": relation["object"]}
-                relation_props = {
-                    "confidence": relation["confidence"],
-                    "file_id": file_id,
-                    "source_type": relation.get("source_type", "unknown")
-                }
+            # 批量保存实体
+            if entity_data_list:
+                logger.info(f"🔗 开始批量创建{len(entity_data_list)}个实体...")
+                entity_result = neo4j_manager.batch_create_entities(entity_data_list)
+                logger.info(f"✅ 实体创建完成: 成功{entity_result['created']}个，失败{entity_result['failed']}个")
                 
-                neo4j_manager.create_relationship(
-                    subject_entity,
-                    object_entity,
-                    relation["predicate"],
-                    relation_props
-                )
+                if entity_result['failed'] > 0:
+                    logger.warning(f"⚠️ 实体创建有失败: {entity_result['errors'][:5]}")  # 只显示前5个错误
             
-            logger.info(f"✅ 知识图谱保存完成：{len(entities)}个实体，{len(relations)}个关系")
+            # 准备关系数据
+            relation_data_list = []
+            for relation in relations:
+                try:
+                    relation_data = {
+                        "subject": relation.get("subject", ""),
+                        "object": relation.get("object", ""),
+                        "predicate": relation.get("predicate", "RELATED_TO"),
+                        "confidence": relation.get("confidence", 0.0),
+                        "file_id": file_id,
+                        "source_type": relation.get("source_type", "unknown")
+                    }
+                    
+                    # 验证必需字段
+                    if not relation_data["subject"] or not relation_data["object"]:
+                        logger.warning(f"跳过无效关系（缺少subject或object）: {relation}")
+                        continue
+                    
+                    relation_data_list.append(relation_data)
+                    
+                except Exception as e:
+                    logger.warning(f"处理关系数据失败，跳过: {relation}, 错误: {e}")
+                    continue
+            
+            # 批量保存关系
+            if relation_data_list:
+                logger.info(f"🔗 开始批量创建{len(relation_data_list)}个关系...")
+                relation_result = neo4j_manager.batch_create_relationships(relation_data_list)
+                logger.info(f"✅ 关系创建完成: 成功{relation_result['created']}个，失败{relation_result['failed']}个")
+                
+                if relation_result['failed'] > 0:
+                    logger.warning(f"⚠️ 关系创建有失败: {relation_result['errors'][:5]}")  # 只显示前5个错误
+            
+            # 汇总结果
+            total_success = (entity_result.get('created', 0) + relation_result.get('created', 0))
+            total_failed = (entity_result.get('failed', 0) + relation_result.get('failed', 0))
+            
+            if total_failed == 0:
+                logger.info(f"🎉 知识图谱保存完全成功：实体{entity_result.get('created', 0)}个，关系{relation_result.get('created', 0)}个")
+            else:
+                logger.warning(f"⚠️ 知识图谱保存部分成功：成功{total_success}个，失败{total_failed}个")
             
         except Exception as e:
             logger.error(f"❌ 知识图谱保存失败: {e}")
+            raise
     
     def _call_llm(self, prompt: str) -> str:
         """调用大语言模型"""
