@@ -1419,6 +1419,9 @@ class GraphRAGService:
                     logger.warning(f"处理实体数据失败，跳过: {entity}, 错误: {e}")
                     continue
             
+            # 初始化结果变量
+            entity_result = {'created': 0, 'failed': 0, 'errors': []}
+            
             # 批量保存实体
             if entity_data_list:
                 logger.info(f"🔗 开始批量创建{len(entity_data_list)}个实体...")
@@ -1451,6 +1454,9 @@ class GraphRAGService:
                 except Exception as e:
                     logger.warning(f"处理关系数据失败，跳过: {relation}, 错误: {e}")
                     continue
+            
+            # 初始化关系结果变量
+            relation_result = {'created': 0, 'failed': 0, 'errors': []}
             
             # 批量保存关系
             if relation_data_list:
