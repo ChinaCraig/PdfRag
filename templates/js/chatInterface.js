@@ -118,16 +118,15 @@ async function sendMessage() {
         // 滚动到底部
         scrollToBottom();
         
-        // 显示AI思考状态
-        const thinkingMessageId = addThinkingMessage();
+        // 创建AI消息容器（用于流式思考和回答）
+        const aiMessageId = addMessage('assistant', '', true);
         
         // 发送到服务器（流式）
-        await sendStreamMessage(message, thinkingMessageId);
+        await sendStreamMessage(message, aiMessageId);
         
     } catch (error) {
         console.error('发送消息失败:', error);
         showNotification('发送失败，请重试', 'error');
-        removeMessage(thinkingMessageId);
     } finally {
         // 恢复输入状态
         setInputDisabled(false);
@@ -136,9 +135,9 @@ async function sendMessage() {
 }
 
 /**
- * 发送流式消息 - 支持思考过程和多媒体内容
+ * 发送流式消息 - 支持流式思考过程和多媒体内容
  */
-async function sendStreamMessage(message, thinkingMessageId) {
+async function sendStreamMessage(message, aiMessageId) {
     try {
         const response = await fetch('/api/search/stream', {
             method: 'POST',
@@ -159,8 +158,8 @@ async function sendStreamMessage(message, thinkingMessageId) {
         const decoder = new TextDecoder();
         
         let buffer = '';
-        let aiMessageId = null;
-        let multimediaContents = [];
+        let multimediaContents = {};
+        let isThinking = true;
         
         while (true) {
             const { done, value } = await reader.read();
@@ -187,36 +186,41 @@ async function sendStreamMessage(message, thinkingMessageId) {
                     
                     const parsed = JSON.parse(jsonData);
                     
-                    // 处理思考过程
-                    if (parsed.type === 'thinking_start') {
-                        updateThinkingMessage(thinkingMessageId, parsed.message, parsed.progress);
-                    } else if (parsed.type === 'thinking_update') {
-                        updateThinkingMessage(thinkingMessageId, parsed.message, parsed.progress, parsed.data);
-                    } else if (parsed.type === 'thinking_complete') {
-                        updateThinkingMessage(thinkingMessageId, parsed.message, parsed.progress);
-                        // 思考完成后，准备开始显示答案
-                        setTimeout(() => {
-                            removeMessage(thinkingMessageId);
-                            aiMessageId = addMessage('assistant', '', true);
-                        }, 500);
-                    }
-                    // 处理多媒体内容
-                    else if (parsed.type === 'multimedia_content') {
-                        multimediaContents = parsed.contents;
-                    }
-                                        // 处理答案内容
-                    else if (parsed.type === 'answer_start') {
-                        // 准备开始接收完整答案
-                        console.log('开始生成答案:', parsed.message);
-                    } else if (parsed.type === 'answer_complete') {
-                        // 接收完整的结构化答案
-                        console.log('答案生成完成');
-                        removeMessage(thinkingMessageId);
-                        aiMessageId = addUnifiedMessage('assistant', parsed.content);
-                        finalizeMessage(aiMessageId);
-                        } else if (parsed.type === 'error') {
-                            throw new Error(parsed.message);
+                                        // 处理流式思考文本
+                    if (parsed.type === 'thinking_text') {
+                        if (isThinking) {
+                            // 添加思考内容，用小字体和特殊样式
+                            const thinkingContent = `<span class="thinking-text">${parsed.content}</span>`;
+                            appendToMessage(aiMessageId, thinkingContent);
                         }
+                    }
+                    // 处理流式答案文本
+                    else if (parsed.type === 'answer_chunk') {
+                        if (isThinking) {
+                            // 思考阶段结束，开始答案阶段
+                            isThinking = false;
+                            // 添加分隔
+                            appendToMessage(aiMessageId, '<div class="answer-separator"></div>');
+                        }
+                        // 流式添加答案文本
+                        appendToMessage(aiMessageId, parsed.content);
+                    }
+                    // 处理多媒体信息
+                    else if (parsed.type === 'answer_multimedia') {
+                        // 保存多媒体映射，用于后续处理占位符
+                        multimediaContents = parsed.multimedia_map;
+                        console.log('Received multimedia map:', multimediaContents);
+                    }
+                    // 处理答案完成
+                    else if (parsed.type === 'answer_complete') {
+                        // 答案文本已完成，现在处理多媒体占位符
+                        if (multimediaContents && Object.keys(multimediaContents).length > 0) {
+                            processMultimediaPlaceholders(aiMessageId, multimediaContents);
+                        }
+                        finalizeMessage(aiMessageId);
+                    } else if (parsed.type === 'error') {
+                        throw new Error(parsed.message);
+                    }
                         
                     } catch (parseError) {
                     console.error('解析流式数据失败:', parseError, 'Line:', line);
@@ -226,7 +230,7 @@ async function sendStreamMessage(message, thinkingMessageId) {
         
     } catch (error) {
         console.error('流式消息发送失败:', error);
-        removeMessage(thinkingMessageId);
+        removeMessage(aiMessageId);
         addMessage('assistant', '抱歉，我遇到了一些问题，请稍后再试。');
         throw error;
     }
@@ -259,98 +263,10 @@ function addMessage(role, content, isStreaming = false) {
     return messageId;
 }
 
-/**
- * 添加思考状态消息
- */
-function addThinkingMessage() {
-    const chatMessages = document.getElementById('chatMessages');
-    if (!chatMessages) return;
-    
-    const messageId = `thinking_${Date.now()}`;
-    
-    const thinkingHtml = `
-        <div class="message assistant thinking-message" id="${messageId}">
-            <div class="message-avatar assistant-avatar">
-                <i class="fas fa-robot"></i>
-            </div>
-            <div class="message-content">
-                <div class="thinking-container">
-                    <div class="thinking-header">
-                        <div class="thinking-title">
-                            <i class="fas fa-brain thinking-icon"></i>
-                            <span id="${messageId}_title">AI正在思考</span>
-                        </div>
-                        <div class="thinking-progress">
-                            <div class="progress-bar">
-                                <div class="progress-fill" id="${messageId}_progress" style="width: 0%"></div>
-                            </div>
-                            <span class="progress-text" id="${messageId}_percent">0%</span>
-                        </div>
-                    </div>
-                    <div class="thinking-details">
-                        <div class="thinking-stage" id="${messageId}_stage">正在分析您的问题...</div>
-                        <div class="thinking-data" id="${messageId}_data"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    chatMessages.insertAdjacentHTML('beforeend', thinkingHtml);
-    scrollToBottom();
-    
-    return messageId;
-}
+
 
 /**
- * 更新思考状态消息
- */
-function updateThinkingMessage(messageId, message, progress, data = null) {
-    const stageElement = document.getElementById(`${messageId}_stage`);
-    const progressElement = document.getElementById(`${messageId}_progress`);
-    const percentElement = document.getElementById(`${messageId}_percent`);
-    const dataElement = document.getElementById(`${messageId}_data`);
-    
-    if (stageElement) {
-        stageElement.textContent = message;
-    }
-    
-    if (progressElement && percentElement) {
-        progressElement.style.width = `${progress}%`;
-        percentElement.textContent = `${progress}%`;
-    }
-    
-    if (data && dataElement) {
-        let dataText = '';
-        if (data.vector_count !== undefined) {
-            dataText += `找到${data.vector_count}个相关文档 `;
-        }
-        if (data.graph_count !== undefined) {
-            dataText += `发现${data.graph_count}个知识关联 `;
-        }
-        if (data.multimedia_count !== undefined) {
-            dataText += `包含${data.multimedia_count}个多媒体元素 `;
-        }
-        if (data.content_types) {
-            const types = data.content_types.map(type => {
-                const typeMap = {
-                    'text': '文字',
-                    'image': '图片', 
-                    'table': '表格',
-                    'chart': '图表'
-                };
-                return typeMap[type] || type;
-            });
-            dataText += `(${types.join('、')})`;
-        }
-        dataElement.textContent = dataText;
-    }
-    
-    scrollToBottom();
-}
-
-/**
- * 向消息追加内容
+ * 向消息追加内容（支持HTML）
  */
 function appendToMessage(messageId, content) {
     const messageElement = document.getElementById(messageId);
@@ -365,8 +281,43 @@ function appendToMessage(messageId, content) {
             textContainer.className = 'text-content';
             contentElement.appendChild(textContainer);
         }
-        textContainer.textContent += content;
+        textContainer.innerHTML += content;
     }
+    
+    scrollToBottom();
+}
+
+/**
+ * 处理多媒体占位符
+ */
+function processMultimediaPlaceholders(messageId, multimediaMap) {
+    const messageElement = document.getElementById(messageId);
+    if (!messageElement) return;
+    
+    const contentElement = messageElement.querySelector('.text-content');
+    if (!contentElement) return;
+    
+    let content = contentElement.innerHTML;
+    console.log('Processing multimedia placeholders:', multimediaMap);
+    
+    // 处理所有占位符
+    for (const [chunkId, mediaData] of Object.entries(multimediaMap)) {
+        const placeholderPattern = new RegExp(`\\[${mediaData.type.toUpperCase()}:${chunkId}\\]`, 'g');
+        
+        if (placeholderPattern.test(content)) {
+            console.log(`Found placeholder for ${mediaData.type}:${chunkId}`);
+            const mediaElement = createInlineMultimediaElement(mediaData, chunkId);
+            if (mediaElement) {
+                // 创建一个占位div来替换文本占位符
+                const placeholderDiv = document.createElement('div');
+                placeholderDiv.innerHTML = mediaElement.outerHTML;
+                content = content.replace(placeholderPattern, placeholderDiv.innerHTML);
+            }
+        }
+    }
+    
+    contentElement.innerHTML = content;
+    scrollToBottom();
 }
 
 /**
@@ -515,6 +466,7 @@ function createInlineMultimediaElement(data, chunkId) {
  */
 function createInlineImageElement(data, wrapper, chunkId) {
     const displayData = data.display_data || {};
+    console.log('Creating image element with data:', displayData);
     
     wrapper.innerHTML = `
         <div class="inline-image-container">

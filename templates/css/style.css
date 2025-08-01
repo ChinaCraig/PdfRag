@@ -1402,6 +1402,23 @@ body {
     line-height: 1.7;
 }
 
+/* 思考过程文本样式 */
+.thinking-text {
+    font-size: 12px;
+    color: #666;
+    font-style: italic;
+    opacity: 0.8;
+    line-height: 1.4;
+    margin-right: 2px;
+}
+
+/* 答案分隔线 */
+.answer-separator {
+    border-top: 1px solid #e0e0e0;
+    margin: 8px 0;
+    opacity: 0.5;
+}
+
 .text-part {
     margin-bottom: var(--spacing-md);
     color: var(--text-primary);

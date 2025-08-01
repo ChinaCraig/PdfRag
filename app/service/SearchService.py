@@ -87,108 +87,107 @@ class SearchService:
         }
     
     def _stream_search(self, query: str, session_id: str) -> Generator[str, None, None]:
-        """流式检索 - 带思考过程可视化"""
+        """流式检索 - 自然思考过程"""
         import json
         
-        # 发送思考开始信号
+        # 开始思考过程（流式文本输出）
         yield json.dumps({
-            "type": "thinking_start",
-            "stage": "analyzing_query",
-            "message": "正在分析您的问题...",
-            "progress": 0
+            "type": "thinking_text",
+            "content": "正在分析您的问题"
         }) + "\n"
         
-        # 实体提取阶段
         yield json.dumps({
-            "type": "thinking_update", 
-            "stage": "extracting_entities",
-            "message": "正在提取问题中的关键实体...",
-            "progress": 10
+            "type": "thinking_text", 
+            "content": "，提取关键信息"
         }) + "\n"
         
-        # 向量检索阶段
+        # 向量检索
         yield json.dumps({
-            "type": "thinking_update",
-            "stage": "vector_search", 
-            "message": "正在进行语义相似度检索...",
-            "progress": 25
+            "type": "thinking_text",
+            "content": "，查找相关文档"
         }) + "\n"
         vector_results = self._vector_search(query)
         
-        yield json.dumps({
-            "type": "thinking_update",
-            "stage": "vector_search_complete",
-            "message": f"找到 {len(vector_results)} 个相关文档片段",
-            "progress": 40,
-            "data": {"vector_count": len(vector_results)}
-        }) + "\n"
+        if vector_results:
+            yield json.dumps({
+                "type": "thinking_text",
+                "content": f"，找到 {len(vector_results)} 个相关片段"
+            }) + "\n"
         
-        # 图检索阶段
+        # 图检索
         yield json.dumps({
-            "type": "thinking_update",
-            "stage": "graph_search",
-            "message": "正在搜索知识图谱中的相关信息...",
-            "progress": 55
+            "type": "thinking_text",
+            "content": "，搜索知识关联"
         }) + "\n"
         graph_results = self._graph_search(query)
         
-        yield json.dumps({
-            "type": "thinking_update", 
-            "stage": "graph_search_complete",
-            "message": f"发现 {len(graph_results)} 个相关的知识关联",
-            "progress": 70,
-            "data": {"graph_count": len(graph_results)}
-        }) + "\n"
+        if graph_results:
+            yield json.dumps({
+                "type": "thinking_text",
+                "content": f"，发现 {len(graph_results)} 个知识关系"
+            }) + "\n"
         
-        # 结果融合阶段
+        # 结果融合
         yield json.dumps({
-            "type": "thinking_update",
-            "stage": "combining_results",
-            "message": "正在融合多源检索结果...",
-            "progress": 80
+            "type": "thinking_text",
+            "content": "，整理信息"
         }) + "\n"
         combined_results = self._combine_search_results(vector_results, graph_results)
         
         # 分析多模态内容
         multimedia_count = sum(1 for r in combined_results if r.get("content_type") != "text")
+        if multimedia_count > 0:
+            content_types = list(set(r.get("content_type", "text") for r in combined_results if r.get("content_type") != "text"))
+            type_names = {"image": "图片", "table": "表格", "chart": "图表"}
+            content_desc = "、".join([type_names.get(t, t) for t in content_types])
+            yield json.dumps({
+                "type": "thinking_text",
+                "content": f"，发现 {multimedia_count} 个多媒体元素（{content_desc}）"
+            }) + "\n"
+        
+        # 思考完成
         yield json.dumps({
-            "type": "thinking_update",
-            "stage": "analyzing_content",
-            "message": f"正在分析内容，包含 {multimedia_count} 个多媒体元素...",
-            "progress": 90,
-            "data": {
-                "total_results": len(combined_results),
-                "multimedia_count": multimedia_count,
-                "content_types": list(set(r.get("content_type", "text") for r in combined_results))
-            }
+            "type": "thinking_text",
+            "content": "，正在组织答案...\n\n"
         }) + "\n"
         
-        # 思考完成，开始生成
+        # 流式生成答案
+        full_answer_text = ""
+        multimedia_map = {}
+        
+        # 首先准备多媒体映射
+        for result in combined_results:
+            if result.get("content_type") != "text":
+                chunk_id = result.get("chunk_id")
+                multimedia_map[chunk_id] = {
+                    "type": result.get("content_type"),
+                    "content_description": result.get("content", ""),
+                    "display_data": self._prepare_display_data(result),
+                    "file_id": result.get("file_id"),
+                    "metadata": result.get("metadata", {})
+                }
+        
+        # 流式生成文本内容
+        for text_chunk in self._stream_generate_answer_with_placeholders(query, combined_results, session_id, multimedia_map):
+            full_answer_text += text_chunk
+            yield json.dumps({
+                "type": "answer_chunk",
+                "content": text_chunk
+            }) + "\n"
+        
+        # 发送多媒体信息
         yield json.dumps({
-            "type": "thinking_complete",
-            "stage": "generating_answer",
-            "message": "思考完成，正在为您生成详细回答...",
-            "progress": 100
+            "type": "answer_multimedia",
+            "multimedia_map": multimedia_map
         }) + "\n"
         
-        # 生成包含多媒体占位符的完整回答
+        # 答案完成信号
         yield json.dumps({
-            "type": "answer_start",
-            "message": "正在生成完整回答..."
+            "type": "answer_complete"
         }) + "\n"
         
-        # 生成带有占位符的完整回答
-        full_structured_answer = self._generate_unified_answer_with_multimedia(query, combined_results, session_id)
-        
-        # 一次性发送完整的结构化回答
-        yield json.dumps({
-            "type": "answer_complete",
-            "content": full_structured_answer
-        }) + "\n"
-        
-        # 记录完整回答（提取文本内容）
-        answer_text = full_structured_answer.get("text_content", "")
-        self._add_to_conversation(session_id, "assistant", answer_text)
+        # 记录完整回答
+        self._add_to_conversation(session_id, "assistant", full_answer_text)
     
     def _vector_search(self, query: str) -> List[Dict[str, Any]]:
         """向量检索"""
@@ -982,6 +981,75 @@ class SearchService:
         except Exception as e:
             logger.error(f"生成带占位符回答失败: {e}")
             return "抱歉，我暂时无法回答这个问题，请稍后再试。"
+    
+    def _stream_generate_answer_with_placeholders(self, query: str, search_results: List[Dict], session_id: str, multimedia_map: Dict) -> Generator[str, None, None]:
+        """
+        流式生成包含多媒体占位符的回答文本
+        """
+        try:
+            # 准备上下文信息，包含多媒体引用说明
+            context_parts = []
+            
+            for i, result in enumerate(search_results, 1):
+                if result["type"] == "vector":
+                    content_type = result.get("content_type", "text")
+                    chunk_id = result.get("chunk_id", "")
+                    
+                    if content_type == "text":
+                        context_parts.append(f"文档片段 {i}：\n{result['content']}\n")
+                    else:
+                        # 为多媒体内容添加占位符说明
+                        placeholder = f"[{content_type.upper()}:{chunk_id}]"
+                        context_parts.append(f"多媒体内容 {i}（{content_type}）：{placeholder}\n描述：{result['content']}\n")
+                
+                elif result["type"] == "graph":
+                    context_parts.append(f"关系信息 {i}：\n{self._format_graph_result(result)}\n")
+            
+            context_info = "\n".join(context_parts)
+            
+            # 获取对话历史
+            history = self._get_conversation_history(session_id)
+            
+            # 多媒体使用说明
+            multimedia_instructions = ""
+            if multimedia_map:
+                multimedia_instructions = f"""
+
+在回答中，你可以在适当的位置引用以下多媒体内容：
+{chr(10).join([f'- {content_type.upper()}内容: [{content_type.upper()}:{chunk_id}] - {data["content_description"][:100]}...' 
+              for chunk_id, data in multimedia_map.items() 
+              for content_type in [data["type"]]])}
+
+请在回答中的合适位置使用这些占位符，例如：
+- 当需要展示图片时，写: [IMAGE:chunk_id]
+- 当需要展示表格时，写: [TABLE:chunk_id]  
+- 当需要展示图表时，写: [CHART:chunk_id]
+
+占位符应该放在相关文字描述之后，作为支撑材料。
+"""
+            
+            # 选择合适的提示词模板
+            if history:
+                prompt_template = self.prompt_config["intelligent_search"]["conversation_context"]
+                prompt = prompt_template.format(
+                    conversation_history=self._format_conversation_history(history),
+                    current_question=query,
+                    document_info=context_info
+                ) + multimedia_instructions
+            else:
+                prompt_template = self.prompt_config["intelligent_search"]["result_integration"]
+                prompt = prompt_template.format(
+                    question=query,
+                    retrieved_info=context_info
+                ) + multimedia_instructions
+            
+            # 流式调用LLM生成包含占位符的回答
+            for chunk in self._call_llm_stream(prompt):
+                yield chunk
+                
+        except Exception as e:
+            logger.error(f"流式生成带占位符回答失败: {e}")
+            yield "抱歉，生成回答时遇到问题。"
     
     def get_enhanced_answer_with_layout(self, query: str, session_id: str = None) -> Dict[str, Any]:
         """
