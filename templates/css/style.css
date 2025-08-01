@@ -1027,4 +1027,422 @@ body {
     .info-item span {
         text-align: left;
     }
+}
+
+/* ==================== 新增样式：思考过程可视化和多媒体内容 ==================== */
+
+/* 思考过程可视化样式 */
+.thinking-message {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+}
+
+.thinking-container {
+    padding: var(--spacing-lg);
+}
+
+.thinking-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+}
+
+.thinking-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.thinking-icon {
+    color: var(--accent-color);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.thinking-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    min-width: 120px;
+}
+
+.progress-bar {
+    width: 100px;
+    height: 6px;
+    background-color: var(--surface-color);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-color), #06d6a0);
+    border-radius: var(--radius-sm);
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 30px;
+}
+
+.thinking-details {
+    border-top: 1px solid var(--border-color);
+    padding-top: var(--spacing-md);
+}
+
+.thinking-stage {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.thinking-data {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* 多媒体内容样式 */
+.multimedia-container {
+    margin-bottom: var(--spacing-lg);
+}
+
+.multimedia-item {
+    margin-bottom: var(--spacing-lg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--surface-color);
+}
+
+.multimedia-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-md);
+    background: var(--secondary-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.multimedia-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.btn-expand {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+}
+
+.btn-expand:hover {
+    background-color: var(--surface-color);
+    color: var(--accent-color);
+}
+
+/* 图片样式 */
+.image-container .image-content {
+    padding: var(--spacing-md);
+}
+
+.document-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.document-image:hover {
+    transform: scale(1.02);
+}
+
+.image-description,
+.table-description,
+.chart-description {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--secondary-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.image-placeholder,
+.table-placeholder,
+.chart-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    background: var(--surface-color);
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* 表格样式 */
+.table-container .table-content {
+    padding: var(--spacing-md);
+}
+
+.table-wrapper {
+    overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.document-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+}
+
+.document-table th {
+    background-color: var(--surface-color);
+    color: var(--text-primary);
+    font-weight: 600;
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+}
+
+.document-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.document-table tr:hover {
+    background-color: var(--surface-color);
+}
+
+.table-more {
+    padding: var(--spacing-sm);
+    text-align: center;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* 图表样式 */
+.chart-container .chart-content {
+    padding: var(--spacing-md);
+    text-align: center;
+}
+
+.document-chart {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.document-chart:hover {
+    transform: scale(1.02);
+}
+
+/* 文本内容样式 */
+.text-content {
+    margin-top: var(--spacing-md);
+    line-height: 1.7;
+    color: var(--text-primary);
+}
+
+.message-complete .text-content {
+    border-left: 3px solid var(--accent-color);
+    padding-left: var(--spacing-md);
+}
+
+/* 模态框样式 */
+.image-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999;
+}
+
+.modal-overlay {
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-xl);
+}
+
+.modal-content {
+    background: var(--secondary-color);
+    border-radius: var(--radius-lg);
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: var(--font-size-lg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    background-color: var(--surface-color);
+    color: var(--text-primary);
+}
+
+.modal-body {
+    padding: var(--spacing-lg);
+    overflow: auto;
+}
+
+/* 响应式设计 - 多媒体内容 */
+@media (max-width: 768px) {
+    .thinking-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-md);
+    }
+    
+    .thinking-progress {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .progress-bar {
+        flex: 1;
+        margin-right: var(--spacing-sm);
+    }
+    
+    .multimedia-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-sm);
+    }
+    
+    .table-wrapper {
+        font-size: var(--font-size-xs);
+    }
+    
+    .document-table th,
+    .document-table td {
+        padding: var(--spacing-xs) var(--spacing-sm);
+    }
+    
+    .modal-overlay {
+        padding: var(--spacing-md);
+    }
+    
+    .modal-content {
+        max-width: 95vw;
+        max-height: 95vh;
+    }
+}
+
+@media (max-width: 480px) {
+    .thinking-container,
+    .image-content,
+    .table-content,
+    .chart-content {
+        padding: var(--spacing-sm);
+    }
+    
+    .multimedia-item {
+        margin-bottom: var(--spacing-md);
+    }
+}
+
+/* 内联多媒体内容样式 */
+.unified-content-container {
+    line-height: 1.7;
+}
+
+.text-part {
+    margin-bottom: var(--spacing-md);
+    color: var(--text-primary);
+    line-height: 1.7;
+}
+
+.inline-multimedia-item {
+    margin: var(--spacing-lg) 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--surface-color);
+}
+
+.inline-image-container .image-content,
+.inline-table-container .table-content,
+.inline-chart-container .chart-content {
+    padding: var(--spacing-md);
+}
+
+.inline-multimedia-item .multimedia-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--secondary-color);
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+}
+
+/* 响应式设计 - 内联多媒体 */
+@media (max-width: 768px) {
+    .inline-multimedia-item .multimedia-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-xs);
+    }
+    
+    .inline-image-container .image-content,
+    .inline-table-container .table-content,
+    .inline-chart-container .chart-content {
+        padding: var(--spacing-sm);
+    }
 } 
