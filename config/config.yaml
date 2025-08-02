@@ -125,19 +125,45 @@ graph_rag:
     # 图谱优化
     graph_optimization: true
   
-# 向量检索配置
+# 向量检索配置 - 分层召回优化
 vector_search:
   # 检索结果数量
-  top_k: 5
+  top_k: 10
   # 相似度阈值
-  similarity_threshold: 0.7
+  similarity_threshold: 0.65
+  # 分层召回配置
+  hierarchical_search:
+    enabled: true
+    # BM25粗召回配置
+    bm25:
+      enabled: true
+      top_k: 200
+      boost_factor: 1.2
+    # 向量召回配置
+    dense_vector:
+      enabled: true
+      top_k: 200
+      embedding_model: "sentence-transformers"
+    # 重排序配置
+    reranking:
+      enabled: true
+      model: "RRF"  # RRF, BGE-reranker, Mini-LM
+      final_top_k: 10
+      rrf_k: 60
+      similarity_threshold: 0.65
   
 # 图检索配置
 graph_search:
   # 最大跳数
   max_hops: 3
   # 路径数量限制
-  max_paths: 10 
+  max_paths: 10
+  # 实体对齐配置
+  entity_alignment:
+    enabled: true
+    fuzzy_matching: true
+    similarity_threshold: 0.6
+    max_candidates: 3 
 
 # 内存和GPU优化配置
 optimization:
@@ -149,6 +175,55 @@ optimization:
   gpu:
     memory_fraction: 0.8  # GPU显存使用比例
     allow_growth: true    # 允许显存动态增长
+  
+  # 异步处理配置
+  async_processing:
+    enabled: true
+    num_workers: 3
+    queue_size: 1000
+    # 批处理配置
+    batch_processing:
+      embedding:
+        batch_size: 32  # GPU环境
+        cpu_batch_size: 8  # CPU环境
+        max_wait_time: 2.0  # 秒
+        max_tokens: 512
+        auto_slice: true  # 自动切片长文本
+      image_analysis:
+        batch_size: 8   # GPU环境
+        cpu_batch_size: 2   # CPU环境
+        max_wait_time: 5.0
+      ocr:
+        batch_size: 4
+        max_wait_time: 3.0
+
+# 监控配置
+monitoring:
+  enabled: true
+  # Prometheus指标
+  prometheus:
+    enabled: true
+    port: 9090
+    metrics_path: "/metrics"
+  # 性能监控
+  performance:
+    track_response_time: true
+    track_db_queries: true
+    track_model_inference: true
+  # 健康检查
+  health_check:
+    enabled: true
+    endpoint: "/health"
+    include_dependencies: true
+  # 告警配置
+  alerts:
+    enabled: true
+    # 响应时间告警（秒）
+    response_time_threshold: 10.0
+    # 错误率告警（百分比）
+    error_rate_threshold: 0.1
+    # 数据库连接告警
+    db_error_threshold: 10
 # 错误处理和恢复
 error_handling:
   # 最大重试次数

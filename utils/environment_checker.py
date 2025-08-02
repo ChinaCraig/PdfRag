@@ -413,14 +413,15 @@ class EnvironmentChecker:
     
     def _check_and_preload_models(self) -> bool:
         """
-        模型检查和预下载 - 重构版
+        模型检查和预下载 - 优化版
         1. 统一检查所有配置的模型是否存在
         2. 验证模型文件完整性
         3. 自动下载缺失的模型
         4. 验证模型可用性
+        5. 检查新增的NER和重排序模型
         """
         try:
-            logger.info("🔍 开始模型检查和预下载（重构版）...")
+            logger.info("🔍 开始模型检查和预下载（优化版）...")
             
             model_config = config_loader.get_model_config()
             all_models_ok = True
@@ -431,7 +432,11 @@ class EnvironmentChecker:
                 ("OCR模型", "ocr", self._check_and_download_ocr_model),
                 ("表格检测模型", "table_detection", self._check_and_download_transformers_model),
                 ("图像分析模型", "image_analysis", self._check_and_download_transformers_model),
-                ("图表识别模型", "chart_recognition", self._check_and_download_transformers_model)
+                ("图表识别模型", "chart_recognition", self._check_and_download_transformers_model),
+                # 新增的优化功能模型
+                ("NER模型", "ner", self._check_and_download_ner_models),
+                ("重排序模型", "reranking", self._check_and_download_reranking_models),
+                ("多模态处理模型", "multimodal", self._check_and_download_multimodal_models)
             ]
             
             # 逐一检查每个模型
@@ -658,6 +663,147 @@ class EnvironmentChecker:
         except Exception as e:
             self.warnings.append(f"{model_key}模型检查异常: {e}")
             return True  # 改为警告，不阻止启动
+    
+    def _check_and_download_ner_models(self, model_config: dict, model_key: str) -> bool:
+        """检查和下载NER相关模型"""
+        try:
+            logger.info("🏷️ 检查NER模型...")
+            
+            # 1. 检查spaCy模型
+            try:
+                import spacy
+                logger.info("✅ spaCy库可用")
+                
+                # 检查中文模型
+                try:
+                    nlp = spacy.load("zh_core_web_sm")
+                    logger.info("✅ spaCy中文模型已安装")
+                except OSError:
+                    logger.warning("⚠️ spaCy中文模型未安装，将使用英文模型")
+                    try:
+                        nlp = spacy.load("en_core_web_sm")
+                        logger.info("✅ spaCy英文模型可用")
+                    except OSError:
+                        self.warnings.append("spaCy模型未安装，NER功能将受限")
+                        logger.warning("⚠️ spaCy模型未安装")
+                        
+            except ImportError:
+                self.warnings.append("spaCy库未安装，NER功能将受限")
+                logger.warning("⚠️ spaCy库未安装")
+            
+            # 2. 检查jieba分词
+            try:
+                import jieba
+                logger.info("✅ jieba分词库可用")
+            except ImportError:
+                self.warnings.append("jieba库未安装，中文分词功能将受限")
+                logger.warning("⚠️ jieba库未安装")
+            
+            # NER功能即使缺少某些依赖也能工作，只是精度会下降
+            return True
+            
+        except Exception as e:
+            self.warnings.append(f"NER模型检查异常: {e}")
+            logger.warning(f"⚠️ NER模型检查异常: {e}")
+            return True  # 不阻止启动
+    
+    def _check_and_download_reranking_models(self, model_config: dict, model_key: str) -> bool:
+        """检查和下载重排序相关模型"""
+        try:
+            logger.info("🔄 检查重排序模型...")
+            
+            # 1. 检查sentence-transformers库（用于CrossEncoder）
+            try:
+                from sentence_transformers import SentenceTransformer
+                from sentence_transformers.cross_encoder import CrossEncoder
+                logger.info("✅ sentence-transformers库可用，支持CrossEncoder重排序")
+                
+                # 检查常用的重排序模型
+                rerank_models = model_config.get("models", [])
+                if not rerank_models:
+                    # 使用默认的重排序模型配置
+                    rerank_models = [
+                        "BAAI/bge-reranker-base",
+                        "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                    ]
+                
+                for model_name in rerank_models:
+                    model_path = model_config.get("model_path", f"models/reranking/{model_name.replace('/', '_')}")
+                    if os.path.exists(model_path) and os.listdir(model_path):
+                        logger.info(f"✅ 重排序模型已存在: {model_name}")
+                    else:
+                        logger.info(f"📥 重排序模型将在首次使用时下载: {model_name}")
+                        os.makedirs(model_path, exist_ok=True)
+                
+            except ImportError:
+                self.warnings.append("sentence-transformers库未安装，将使用RRF重排序算法")
+                logger.warning("⚠️ sentence-transformers库未安装，将使用RRF重排序")
+            
+            # 2. RRF算法是默认支持的，不需要额外模型
+            logger.info("✅ RRF重排序算法默认支持")
+            
+            return True
+            
+        except Exception as e:
+            self.warnings.append(f"重排序模型检查异常: {e}")
+            logger.warning(f"⚠️ 重排序模型检查异常: {e}")
+            return True  # 不阻止启动
+    
+    def _check_and_download_multimodal_models(self, model_config: dict, model_key: str) -> bool:
+        """检查和下载多模态处理相关模型"""
+        try:
+            logger.info("🖼️ 检查多模态处理模型...")
+            
+            # 1. 检查图像处理相关库
+            image_libs_ok = True
+            try:
+                from PIL import Image
+                logger.info("✅ Pillow图像处理库可用")
+            except ImportError:
+                image_libs_ok = False
+                self.errors.append("Pillow库未安装，图像处理功能不可用")
+                logger.error("❌ Pillow库未安装")
+            
+            # 2. 检查表格和图表分析模型
+            analysis_models = model_config.get("analysis_models", {})
+            
+            # 表格分析模型
+            table_model_config = analysis_models.get("table", {})
+            if table_model_config:
+                model_name = table_model_config.get("model_name", "microsoft/table-transformer-structure-recognition")
+                model_path = table_model_config.get("model_path", f"models/table/{model_name.replace('/', '_')}")
+                
+                if os.path.exists(model_path) and os.listdir(model_path):
+                    logger.info(f"✅ 表格分析模型已存在: {model_name}")
+                else:
+                    logger.info(f"📥 表格分析模型将在首次使用时下载: {model_name}")
+                    os.makedirs(model_path, exist_ok=True)
+            
+            # 图表分析模型
+            chart_model_config = analysis_models.get("chart", {})
+            if chart_model_config:
+                model_name = chart_model_config.get("model_name", "google/deplot")
+                model_path = chart_model_config.get("model_path", f"models/chart/{model_name.replace('/', '_')}")
+                
+                if os.path.exists(model_path) and os.listdir(model_path):
+                    logger.info(f"✅ 图表分析模型已存在: {model_name}")
+                else:
+                    logger.info(f"📥 图表分析模型将在首次使用时下载: {model_name}")
+                    os.makedirs(model_path, exist_ok=True)
+            
+            # 3. 检查OCR相关功能（已在其他地方检查，这里只做验证）
+            try:
+                # 验证PaddleOCR是否可用（用于图像OCR）
+                logger.info("ℹ️ OCR功能将在专门的OCR模型检查中验证")
+            except Exception:
+                pass
+            
+            return image_libs_ok
+            
+        except Exception as e:
+            self.warnings.append(f"多模态模型检查异常: {e}")
+            logger.warning(f"⚠️ 多模态模型检查异常: {e}")
+            return True  # 不完全阻止启动
     
     # ===== 模型完整性验证函数已移除 =====
     # 注意：原有的模型完整性检查函数过于严格，容易误报，已全部移除

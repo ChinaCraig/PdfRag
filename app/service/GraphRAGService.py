@@ -466,50 +466,245 @@ class GraphRAGService:
             return []
     
     def _smart_text_chunking(self, text: str, chunk_size: int, chunk_overlap: int) -> List[str]:
-        """智能文本分块"""
+        """智能语义分块 + 层级标签"""
         try:
             chunks = []
             
-            # 按段落分割
-            paragraphs = text.split('\n\n')
-            current_chunk = ""
+            # 检测文档结构层级
+            sections = self._detect_document_hierarchy(text)
             
-            for paragraph in paragraphs:
-                paragraph = paragraph.strip()
-                if not paragraph:
-                    continue
+            current_chunk = ""
+            current_section_info = {"title": "", "level": 0, "parent_id": None}
+            
+            for section in sections:
+                section_text = section["content"]
+                section_info = {
+                    "title": section["title"],
+                    "level": section["level"],
+                    "parent_id": section.get("parent_id")
+                }
                 
-                # 如果当前段落加入后超过块大小
-                if len(current_chunk) + len(paragraph) > chunk_size:
-                    if current_chunk:
-                        chunks.append(current_chunk.strip())
-                        
-                        # 处理重叠
-                        if chunk_overlap > 0 and len(current_chunk) > chunk_overlap:
-                            current_chunk = current_chunk[-chunk_overlap:] + "\n" + paragraph
+                # 按段落进一步分割
+                paragraphs = section_text.split('\n\n')
+                
+                for paragraph in paragraphs:
+                    paragraph = paragraph.strip()
+                    if not paragraph:
+                        continue
+                    
+                    # 如果当前段落加入后超过块大小
+                    if len(current_chunk) + len(paragraph) > chunk_size:
+                        if current_chunk:
+                            # 创建带层级标签的chunk
+                            enriched_chunk = self._enrich_chunk_with_hierarchy(
+                                current_chunk.strip(), current_section_info
+                            )
+                            chunks.append(enriched_chunk)
+                            
+                            # 处理重叠 + 保持上下文
+                            if chunk_overlap > 0 and len(current_chunk) > chunk_overlap:
+                                overlap_text = current_chunk[-chunk_overlap:]
+                                current_chunk = f"[续接上文]{overlap_text}\n{paragraph}"
+                            else:
+                                current_chunk = paragraph
+                        else:
+                            # 单个段落过长，按句子分割
+                            sentences = self._split_long_paragraph_with_context(
+                                paragraph, chunk_size, section_info
+                            )
+                            chunks.extend(sentences[:-1])
+                            current_chunk = sentences[-1] if sentences else ""
+                    else:
+                        if current_chunk:
+                            current_chunk += "\n\n" + paragraph
                         else:
                             current_chunk = paragraph
-                    else:
-                        # 单个段落过长，按句子分割
-                        sentences = self._split_long_paragraph(paragraph, chunk_size)
-                        chunks.extend(sentences[:-1])
-                        current_chunk = sentences[-1] if sentences else ""
-                else:
-                    if current_chunk:
-                        current_chunk += "\n\n" + paragraph
-                    else:
-                        current_chunk = paragraph
+                        
+                        # 更新当前章节信息
+                        current_section_info = section_info
             
             # 添加最后一个块
             if current_chunk.strip():
-                chunks.append(current_chunk.strip())
+                enriched_chunk = self._enrich_chunk_with_hierarchy(
+                    current_chunk.strip(), current_section_info
+                )
+                chunks.append(enriched_chunk)
             
             return chunks
             
         except Exception as e:
-            logger.error(f"智能文本分块失败: {e}")
+            logger.error(f"智能语义分块失败: {e}")
             # 回退到简单分块
             return self._simple_text_chunking(text, chunk_size, chunk_overlap)
+    
+    def _detect_document_hierarchy(self, text: str) -> List[Dict[str, Any]]:
+        """检测文档层级结构"""
+        try:
+            import re
+            sections = []
+            lines = text.split('\n')
+            
+            current_section = {"title": "", "content": "", "level": 0, "parent_id": None}
+            section_stack = []  # 用于跟踪层级关系
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    current_section["content"] += "\n"
+                    continue
+                
+                # 检测标题模式
+                title_match = self._detect_title_pattern(line)
+                
+                if title_match:
+                    # 保存当前节
+                    if current_section["content"].strip():
+                        sections.append(current_section.copy())
+                    
+                    # 开始新节
+                    level = title_match["level"]
+                    title = title_match["title"]
+                    
+                    # 维护层级关系
+                    parent_id = None
+                    while section_stack and section_stack[-1]["level"] >= level:
+                        section_stack.pop()
+                    
+                    if section_stack:
+                        parent_id = section_stack[-1]["id"]
+                    
+                    section_id = f"section_{len(sections)}"
+                    current_section = {
+                        "id": section_id,
+                        "title": title,
+                        "content": "",
+                        "level": level,
+                        "parent_id": parent_id
+                    }
+                    
+                    section_stack.append({
+                        "id": section_id,
+                        "level": level,
+                        "title": title
+                    })
+                else:
+                    current_section["content"] += line + "\n"
+            
+            # 添加最后一节
+            if current_section["content"].strip():
+                sections.append(current_section)
+            
+            # 如果没有检测到结构，创建单一节
+            if not sections:
+                sections = [{
+                    "id": "section_0",
+                    "title": "文档内容",
+                    "content": text,
+                    "level": 1,
+                    "parent_id": None
+                }]
+            
+            return sections
+            
+        except Exception as e:
+            logger.error(f"文档层级检测失败: {e}")
+            return [{"title": "文档内容", "content": text, "level": 1, "parent_id": None}]
+    
+    def _detect_title_pattern(self, line: str) -> Optional[Dict[str, Any]]:
+        """检测标题模式"""
+        import re
+        
+        # 数字标题: 1. 2. 1.1 1.1.1
+        number_pattern = r'^(\d+(?:\.\d+)*)\s*[\.、]\s*(.+)$'
+        match = re.match(number_pattern, line)
+        if match:
+            number_part = match.group(1)
+            title = match.group(2).strip()
+            level = len(number_part.split('.'))
+            return {"level": level, "title": title, "pattern": "number"}
+        
+        # 中文标题: 一、二、三、
+        chinese_number_pattern = r'^([一二三四五六七八九十]+)、\s*(.+)$'
+        match = re.match(chinese_number_pattern, line)
+        if match:
+            return {"level": 1, "title": match.group(2).strip(), "pattern": "chinese"}
+        
+        # 括号标题: (1) (2) (一) (二)
+        bracket_pattern = r'^\(([0-9一二三四五六七八九十\w]+)\)\s*(.+)$'
+        match = re.match(bracket_pattern, line)
+        if match:
+            return {"level": 2, "title": match.group(2).strip(), "pattern": "bracket"}
+        
+        # Markdown风格: # ## ###
+        markdown_pattern = r'^(#{1,6})\s+(.+)$'
+        match = re.match(markdown_pattern, line)
+        if match:
+            level = len(match.group(1))
+            title = match.group(2).strip()
+            return {"level": level, "title": title, "pattern": "markdown"}
+        
+        # 加粗标题（全大写或特殊字符围绕）
+        if (line.isupper() and len(line) > 5) or (line.startswith('*') and line.endswith('*')):
+            return {"level": 1, "title": line.strip('*').strip(), "pattern": "bold"}
+        
+        return None
+    
+    def _enrich_chunk_with_hierarchy(self, chunk_text: str, section_info: Dict[str, Any]) -> str:
+        """用层级信息丰富chunk"""
+        try:
+            # 添加上下文标签
+            context_prefix = ""
+            if section_info.get("title"):
+                context_prefix = f"[章节: {section_info['title']}]\n"
+            
+            if section_info.get("level", 0) > 1:
+                context_prefix += f"[层级: 第{section_info['level']}级]\n"
+            
+            return context_prefix + chunk_text
+            
+        except Exception as e:
+            logger.error(f"chunk层级丰富失败: {e}")
+            return chunk_text
+    
+    def _split_long_paragraph_with_context(self, paragraph: str, max_size: int, section_info: Dict[str, Any]) -> List[str]:
+        """按上下文分割长段落"""
+        try:
+            # 按句子分割
+            import re
+            sentences = re.split(r'[.!?。！？]', paragraph)
+            
+            chunks = []
+            current_chunk = ""
+            context_prefix = f"[{section_info.get('title', '文档')}] " if section_info.get('title') else ""
+            
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                    
+                test_chunk = context_prefix + current_chunk + sentence + "。"
+                if len(test_chunk) > max_size:
+                    if current_chunk:
+                        chunks.append(context_prefix + current_chunk.strip())
+                        current_chunk = sentence + "。"
+                    else:
+                        # 单个句子过长，强制分割
+                        chunks.append(context_prefix + sentence[:max_size - len(context_prefix)])
+                        current_chunk = sentence[max_size - len(context_prefix):] + "。"
+                else:
+                    if current_chunk:
+                        current_chunk += sentence + "。"
+                    else:
+                        current_chunk = sentence + "。"
+            
+            if current_chunk.strip():
+                chunks.append(context_prefix + current_chunk.strip())
+            
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"上下文段落分割失败: {e}")
+            return [paragraph]
     
     def _split_long_paragraph(self, paragraph: str, max_size: int) -> List[str]:
         """分割过长的段落"""

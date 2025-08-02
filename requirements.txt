@@ -1,55 +1,75 @@
-# PDF智能文件管理系统依赖包
+# PDF智能文件管理系统依赖包 - Python 3.11兼容版
 
 # Web框架
-Flask==2.3.3
-Flask-CORS==4.0.0
+Flask>=2.3.0,<3.0.0
+Flask-CORS>=4.0.0,<5.0.0
 
 # 数据库相关
-PyMySQL==1.1.0
-SQLAlchemy==2.0.23
-pymilvus==2.5.14
-neo4j==5.13.0
+PyMySQL>=1.1.0
+SQLAlchemy>=2.0.0,<3.0.0
+pymilvus>=2.3.0
+neo4j>=5.0.0
 
 # PDF处理
-PyMuPDF==1.23.8
+PyMuPDF>=1.23.0
 
 # 图像处理
-Pillow==10.0.1
+Pillow>=10.0.0
 
-# OCR和NLP模型
-paddleocr==2.7.3
-paddlepaddle==2.5.2
-sentence-transformers==2.2.2
-transformers==4.35.0
+# OCR和NLP模型（可选安装）
+# paddleocr>=2.7.0
+# paddlepaddle
+sentence-transformers>=2.2.0
+transformers>=4.30.0
 
-# 机器学习
-torch==2.1.0
-torchvision==0.16.0
-numpy==1.24.3
-pandas==2.1.1
+# 机器学习（兼容Python 3.11）
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0,<2.0.0
+pandas>=2.0.0
 
 # HTTP请求
-requests==2.31.0
+requests>=2.31.0
 
 # 配置文件处理
-PyYAML==6.0.1
+PyYAML>=6.0.0
 
 # 日志
-loguru==0.7.2
+loguru>=0.7.0
 
 # 工具库
-tqdm==4.66.1
-click==8.1.7
+tqdm>=4.65.0
+click>=8.1.0
 
 # 安全
-Werkzeug==2.3.7
+Werkzeug>=2.3.0,<4.0.0
 
 # 异步处理
-celery==5.3.4
-redis==5.0.1
+celery>=5.3.0
+redis>=5.0.0
 
 # 硬件检测和系统监控
-psutil==5.9.6
+psutil>=5.9.0
 
-# 开发工具（可选）
-python-dotenv==1.0.1 
+# NER和实体识别
+spacy>=3.7.0
+jieba>=0.42.0
+
+# 相似度计算和文本匹配（使用Python内置difflib，无需额外包）
+scikit-learn>=1.3.0
+
+# 监控和指标收集
+prometheus-client>=0.19.0
+
+# 异步编程增强
+aiofiles>=23.0.0
+
+# 数据处理优化
+# polars>=0.20.0  # 可选：高性能DataFrame
+orjson>=3.9.0  # 快速JSON处理
+
+# GPU支持增强（可选）
+# nvidia-ml-py3>=7.352.0
+
+# 开发工具
+python-dotenv>=1.0.0 

@@ -111,17 +111,52 @@ def create_app():
     def health_check():
         """系统健康检查"""
         try:
-            return {
-                "status": "healthy",
-                "service": "pdf-rag-system",
-                "version": "1.0.0",
-                "message": "PDF智能文件管理系统运行正常"
-            }, 200
+            from utils.monitoring import get_health_status
+            return get_health_status(), 200
         except Exception as e:
             return {
                 "status": "unhealthy",
                 "service": "pdf-rag-system",
                 "error": str(e)
+            }, 500
+    
+    # Prometheus指标端点
+    @app.route('/metrics')
+    def metrics_endpoint():
+        """Prometheus指标收集端点"""
+        try:
+            from utils.monitoring import get_metrics_endpoint
+            from flask import Response
+            
+            metrics_data = get_metrics_endpoint()
+            return Response(metrics_data, mimetype='text/plain')
+        except Exception as e:
+            logger.error(f"指标收集失败: {e}")
+            return "# 指标收集失败\n", 500
+    
+    # 系统状态监控
+    @app.route('/api/system/status')
+    def system_status():
+        """获取系统运行状态"""
+        try:
+            from utils.monitoring import metrics_collector
+            metrics = metrics_collector.get_metrics_summary()
+            
+            return {
+                "success": True,
+                "data": {
+                    "uptime": "运行中",
+                    "active_requests": metrics.get('gauges', {}).get('active_requests', 0),
+                    "total_requests": metrics.get('counters', {}).get('requests_total', 0),
+                    "error_count": metrics.get('counters', {}).get('requests_error', 0),
+                    "avg_response_time": metrics.get('histograms', {}).get('request_duration', {}).get('avg', 0),
+                    "system_load": "正常"
+                }
+            }, 200
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"获取系统状态失败: {str(e)}"
             }, 500
     
     # 错误处理

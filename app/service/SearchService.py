@@ -190,36 +190,133 @@ class SearchService:
         self._add_to_conversation(session_id, "assistant", full_answer_text)
     
     def _vector_search(self, query: str) -> List[Dict[str, Any]]:
-        """向量检索"""
+        """向量检索 - 分层召回版"""
         try:
             # 检查是否有可用的文档数据
             if not self._has_vector_data():
                 logger.info("暂无向量数据，跳过向量检索")
                 return []
             
+            # 1. BM25粗召回（如果支持）
+            bm25_results = self._bm25_search(query, top_k=200)
+            
+            # 2. 向量召回 Top-200
+            vector_results = self._dense_vector_search(query, top_k=200)
+            
+            # 3. 合并去重
+            combined_results = self._merge_and_deduplicate(bm25_results, vector_results)
+            
+            # 4. 重排序 (使用BGE-reranker或Mini-LM)
+            reranked_results = self._rerank_results(query, combined_results)
+            
+            # 5. 阈值过滤
+            search_config = self.config.get("vector_search", {})
+            threshold = search_config.get("similarity_threshold", 0.7)
+            final_results = [
+                result for result in reranked_results 
+                if result.get("final_score", 0) >= threshold
+            ]
+            
+            logger.info(f"分层检索: BM25({len(bm25_results)}) + 向量({len(vector_results)}) → 合并({len(combined_results)}) → 重排({len(reranked_results)}) → 过滤({len(final_results)})")
+            return final_results[:search_config.get("top_k", 10)]
+            
+        except Exception as e:
+            logger.error(f"分层向量检索失败: {e}")
+            return []
+    
+    def _bm25_search(self, query: str, top_k: int = 200) -> List[Dict[str, Any]]:
+        """BM25粗召回"""
+        try:
+            # 简化版本：使用MySQL全文搜索模拟BM25
+            results = mysql_manager.execute_query("""
+                SELECT file_id, chunk_id, content, 
+                       MATCH(content) AGAINST(%s IN NATURAL LANGUAGE MODE) as bm25_score
+                FROM file_chunks 
+                WHERE MATCH(content) AGAINST(%s IN NATURAL LANGUAGE MODE)
+                ORDER BY bm25_score DESC
+                LIMIT %s
+            """, (query, query, top_k))
+            
+            return [{"source": "bm25", "score": r["bm25_score"], **r} for r in results or []]
+            
+        except Exception as e:
+            logger.warning(f"BM25检索失败，跳过: {e}")
+            return []
+    
+    def _dense_vector_search(self, query: str, top_k: int = 200) -> List[Dict[str, Any]]:
+        """密集向量检索"""
+        try:
             # 获取查询的嵌入向量
             query_embedding = model_manager.get_embedding([query])[0]
             
             # 在Milvus中搜索相似向量
-            search_config = self.config["vector_search"]
-            results = milvus_manager.search_vectors(
-                query_embedding,
-                top_k=search_config["top_k"]
-            )
+            results = milvus_manager.search_vectors(query_embedding, top_k=top_k)
             
-            # 过滤低相似度结果
-            threshold = search_config["similarity_threshold"]
-            filtered_results = [
-                result for result in results 
-                if result["score"] >= threshold
-            ]
-            
-            logger.info(f"向量检索找到 {len(filtered_results)} 个相关结果")
-            return filtered_results
+            return [{"source": "vector", **result} for result in results]
             
         except Exception as e:
-            logger.error(f"向量检索失败: {e}")
+            logger.error(f"密集向量检索失败: {e}")
             return []
+    
+    def _merge_and_deduplicate(self, bm25_results: List[Dict], vector_results: List[Dict]) -> List[Dict[str, Any]]:
+        """合并去重"""
+        try:
+            seen_chunks = set()
+            merged = []
+            
+            # 合并两种检索结果
+            all_results = bm25_results + vector_results
+            
+            for result in all_results:
+                chunk_id = result.get("chunk_id")
+                if chunk_id and chunk_id not in seen_chunks:
+                    seen_chunks.add(chunk_id)
+                    merged.append(result)
+            
+            return merged
+            
+        except Exception as e:
+            logger.error(f"结果合并失败: {e}")
+            return bm25_results + vector_results
+    
+    def _rerank_results(self, query: str, results: List[Dict]) -> List[Dict[str, Any]]:
+        """重排序"""
+        try:
+            if not results:
+                return []
+            
+            # 使用RRF (Reciprocal Rank Fusion) 算法
+            rrf_scores = {}
+            k = 60  # RRF参数
+            
+            # 按来源分组排序
+            bm25_results = sorted([r for r in results if r.get("source") == "bm25"], 
+                                key=lambda x: x.get("score", 0), reverse=True)
+            vector_results = sorted([r for r in results if r.get("source") == "vector"], 
+                                  key=lambda x: x.get("score", 0), reverse=True)
+            
+            # 计算RRF分数
+            for rank, result in enumerate(bm25_results, 1):
+                chunk_id = result.get("chunk_id")
+                if chunk_id:
+                    rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0) + 1.0 / (k + rank)
+            
+            for rank, result in enumerate(vector_results, 1):
+                chunk_id = result.get("chunk_id")
+                if chunk_id:
+                    rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0) + 1.0 / (k + rank)
+            
+            # 为结果添加最终分数
+            for result in results:
+                chunk_id = result.get("chunk_id")
+                result["final_score"] = rrf_scores.get(chunk_id, 0)
+            
+            # 按最终分数排序
+            return sorted(results, key=lambda x: x.get("final_score", 0), reverse=True)
+            
+        except Exception as e:
+            logger.error(f"重排序失败: {e}")
+            return results
     
     def _has_vector_data(self) -> bool:
         """检查是否有向量数据"""
@@ -270,22 +367,224 @@ class SearchService:
             return []
     
     def _extract_query_entities(self, query: str) -> List[str]:
-        """从查询中提取实体"""
-        # 这里需要实现实体识别
-        # 可以使用NER模型或调用LLM
-        
-        # 暂时使用简单的关键词提取
-        # 实际实现应该调用LLM进行实体识别
-        entities = []
-        
-        # 简单的实体识别逻辑（示例）
-        # 实际应该使用更复杂的NER方法
-        words = query.split()
-        for word in words:
-            if len(word) > 2:  # 简单过滤
-                entities.append(word)
-        
-        return entities[:3]  # 限制实体数量
+        """从查询中提取实体 - NER/LLM 升级版"""
+        try:
+            entities = []
+            
+            # 方法1: 使用spaCy NER（如果可用）
+            try:
+                entities.extend(self._extract_entities_with_spacy(query))
+            except ImportError:
+                logger.debug("spaCy不可用，跳过NER提取")
+            except Exception as e:
+                logger.warning(f"spaCy NER提取失败: {e}")
+            
+            # 方法2: 使用LLM进行实体提取
+            llm_entities = self._extract_entities_with_llm(query)
+            entities.extend(llm_entities)
+            
+            # 方法3: 基于模式的实体识别
+            pattern_entities = self._extract_entities_with_patterns(query)
+            entities.extend(pattern_entities)
+            
+            # 去重并按置信度排序
+            unique_entities = list(set(entities))
+            
+            # 实体对齐：查找图谱中实际存在的实体
+            aligned_entities = self._align_entities_with_graph(unique_entities)
+            
+            logger.info(f"实体提取: 原始({len(unique_entities)}) → 对齐({len(aligned_entities)})")
+            return aligned_entities[:5]  # 限制实体数量
+            
+        except Exception as e:
+            logger.error(f"实体提取失败: {e}")
+            # 回退到简单方法
+            return self._simple_entity_extraction(query)
+    
+    def _extract_entities_with_spacy(self, query: str) -> List[str]:
+        """使用spaCy进行NER"""
+        try:
+            import spacy
+            
+            # 尝试加载中文模型
+            try:
+                nlp = spacy.load("zh_core_web_sm")
+            except OSError:
+                # 回退到英文模型
+                nlp = spacy.load("en_core_web_sm")
+            
+            doc = nlp(query)
+            entities = []
+            
+            for ent in doc.ents:
+                # 过滤有用的实体类型
+                if ent.label_ in ["PERSON", "ORG", "GPE", "PRODUCT", "EVENT", "WORK_OF_ART"]:
+                    entities.append(ent.text.strip())
+            
+            return entities
+            
+        except Exception as e:
+            logger.debug(f"spaCy NER失败: {e}")
+            return []
+    
+    def _extract_entities_with_llm(self, query: str) -> List[str]:
+        """使用LLM进行实体提取（带缓存）"""
+        try:
+            # 检查缓存
+            cache_key = f"entity_extract_{hash(query)}"
+            if hasattr(self, '_entity_cache') and cache_key in self._entity_cache:
+                return self._entity_cache[cache_key]
+            
+            # 构建实体提取prompt
+            entity_prompt = f"""
+请从以下查询中提取关键实体，包括人名、机构名、产品名、概念等：
+
+查询: {query}
+
+请只返回实体列表，每行一个，不要其他解释：
+"""
+            
+            response = self._call_llm(entity_prompt)
+            
+            # 解析LLM响应
+            entities = []
+            for line in response.split('\n'):
+                line = line.strip()
+                if line and not line.startswith(('请', '查询', '实体', '-', '*')):
+                    # 清理常见的LLM输出噪音
+                    cleaned = line.replace('- ', '').replace('* ', '').strip()
+                    if len(cleaned) > 1 and len(cleaned) < 50:
+                        entities.append(cleaned)
+            
+            # 缓存结果
+            if not hasattr(self, '_entity_cache'):
+                self._entity_cache = {}
+            self._entity_cache[cache_key] = entities
+            
+            return entities[:10]  # LLM提取限制数量
+            
+        except Exception as e:
+            logger.warning(f"LLM实体提取失败: {e}")
+            return []
+    
+    def _extract_entities_with_patterns(self, query: str) -> List[str]:
+        """基于模式的实体识别"""
+        try:
+            import re
+            entities = []
+            
+            # 中文人名模式
+            chinese_name_pattern = r'[王李张刘陈杨黄赵周吴徐孙胡朱高林何郭马罗梁宋郑谢韩唐冯于董萧程曹袁邓许傅沈曾彭吕苏卢蒋蔡贾丁魏薛叶阎余潘杜戴夏锺汪田任姜范方石姚谭廖邹熊金陆郝孔白崔康毛邱秦江史顾侯邵孟龙万段漕钱汤尹黎易常武乔贺赖龚文][一-龥]{1,3}'
+            names = re.findall(chinese_name_pattern, query)
+            entities.extend(names)
+            
+            # 组织机构模式
+            org_patterns = [
+                r'[一-龥]+(?:公司|集团|企业|机构|组织|部门|学院|大学|医院|银行)',
+                r'[A-Z][a-zA-Z\s]+(?:Inc|Corp|Ltd|LLC|Company|Group|Organization)',
+            ]
+            for pattern in org_patterns:
+                matches = re.findall(pattern, query)
+                entities.extend(matches)
+            
+            # 产品/概念模式
+            concept_patterns = [
+                r'[一-龥]{2,8}(?:系统|平台|产品|技术|方案|模型|算法|协议)',
+                r'[A-Z]{2,}(?:\s+[A-Z]{2,})*',  # 缩写词
+            ]
+            for pattern in concept_patterns:
+                matches = re.findall(pattern, query)
+                entities.extend(matches)
+            
+            return entities
+            
+        except Exception as e:
+            logger.warning(f"模式实体提取失败: {e}")
+            return []
+    
+    def _align_entities_with_graph(self, entities: List[str]) -> List[str]:
+        """实体与知识图谱对齐"""
+        try:
+            if not entities:
+                return []
+            
+            aligned_entities = []
+            
+            # 在Neo4j中查找实际存在的实体
+            for entity in entities:
+                # 精确匹配
+                exact_match = neo4j_manager.execute_query(
+                    "MATCH (n:Entity {name: $name}) RETURN n.name as name LIMIT 1",
+                    {"name": entity}
+                )
+                
+                if exact_match:
+                    aligned_entities.append(entity)
+                    continue
+                
+                # 模糊匹配
+                fuzzy_matches = neo4j_manager.execute_query(
+                    "MATCH (n:Entity) WHERE n.name CONTAINS $partial_name RETURN n.name as name LIMIT 3",
+                    {"partial_name": entity}
+                )
+                
+                if fuzzy_matches:
+                    # 选择最相似的
+                    best_match = self._find_most_similar(entity, [m["name"] for m in fuzzy_matches])
+                    if best_match:
+                        aligned_entities.append(best_match)
+            
+            return aligned_entities
+            
+        except Exception as e:
+            logger.warning(f"实体对齐失败: {e}")
+            return entities  # 返回原始实体
+    
+    def _find_most_similar(self, target: str, candidates: List[str]) -> Optional[str]:
+        """找到最相似的实体"""
+        try:
+            from difflib import SequenceMatcher
+            
+            best_match = None
+            best_score = 0.0
+            
+            for candidate in candidates:
+                score = SequenceMatcher(None, target.lower(), candidate.lower()).ratio()
+                if score > best_score and score > 0.6:  # 相似度阈值
+                    best_score = score
+                    best_match = candidate
+            
+            return best_match
+            
+        except Exception:
+            return candidates[0] if candidates else None
+    
+    def _simple_entity_extraction(self, query: str) -> List[str]:
+        """简单实体提取（回退方案）"""
+        try:
+            import jieba
+            
+            # 使用jieba分词
+            words = list(jieba.cut(query))
+            
+            # 过滤有意义的词
+            entities = []
+            for word in words:
+                word = word.strip()
+                if (len(word) >= 2 and 
+                    not word.isdigit() and 
+                    word not in ['的', '是', '在', '有', '和', '与', '或', '但', '而', '了', '吗', '呢']):
+                    entities.append(word)
+            
+            return entities[:5]
+            
+        except ImportError:
+            # jieba也不可用，使用最基础的方法
+            words = query.split()
+            return [w for w in words if len(w) > 2][:3]
+        except Exception as e:
+            logger.error(f"简单实体提取失败: {e}")
+            return []
     
     def _combine_search_results(self, vector_results: List[Dict], graph_results: List[Dict]) -> List[Dict[str, Any]]:
         """融合检索结果 - 多模态版"""

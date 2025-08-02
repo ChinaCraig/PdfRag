@@ -123,6 +123,121 @@ chart_recognition:
     # 数据摘要
     data_summary: true
 
+# NER模型配置 - 新增优化功能
+ner:
+  # spaCy模型配置
+  spacy:
+    # 中文模型
+    zh_model: "zh_core_web_sm"
+    # 英文模型
+    en_model: "en_core_web_sm"
+    # 自动下载
+    auto_download: true
+    # 模型路径
+    model_path: "models/ner/spacy"
+  
+  # jieba分词配置
+  jieba:
+    # 用户词典路径
+    user_dict_path: "models/ner/jieba/user_dict.txt"
+    # 自定义分词规则
+    custom_rules: true
+    # 模型路径
+    model_path: "models/ner/jieba"
+  
+  # 实体类型配置
+  entity_types:
+    - "PERSON"      # 人名
+    - "ORG"         # 组织
+    - "GPE"         # 地理政治实体
+    - "MONEY"       # 货币
+    - "DATE"        # 日期
+    - "TIME"        # 时间
+    - "PERCENT"     # 百分比
+    - "PRODUCT"     # 产品
+    - "EVENT"       # 事件
+
+# 重排序模型配置 - 新增优化功能
+reranking:
+  # 默认重排序算法
+  default_algorithm: "RRF"  # RRF, BGE-reranker, Mini-LM
+  
+  # RRF算法配置
+  rrf:
+    k: 60  # RRF参数
+    enabled: true
+  
+  # BGE重排序模型
+  bge_reranker:
+    model_name: "BAAI/bge-reranker-base"
+    model_path: "models/reranking/bge_reranker"
+    enabled: false
+    max_length: 512
+    batch_size: 16
+  
+  # MiniLM重排序模型
+  mini_lm:
+    model_name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    model_path: "models/reranking/mini_lm"
+    enabled: false
+    max_length: 512
+    batch_size: 16
+  
+  # 通用CrossEncoder配置
+  cross_encoder:
+    models:
+      - "BAAI/bge-reranker-base"
+      - "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    model_path: "models/reranking"
+    auto_download: true
+
+# 多模态处理模型配置 - 新增优化功能
+multimodal:
+  # 图像处理配置
+  image_processing:
+    # 预处理参数
+    preprocessing:
+      resize_mode: "maintain_aspect_ratio"
+      max_size: [1024, 1024]
+      normalize: true
+    
+    # 特征提取
+    feature_extraction:
+      model_name: "openai/clip-vit-base-patch32"
+      model_path: "models/multimodal/clip"
+      enabled: true
+  
+  # 表格分析增强
+  table_analysis:
+    # 结构识别模型
+    structure_model:
+      model_name: "microsoft/table-transformer-structure-recognition"
+      model_path: "models/multimodal/table_structure"
+    
+    # 内容提取增强
+    content_extraction:
+      use_deep_learning: true
+      ocr_integration: true
+  
+  # 图表分析增强
+  chart_analysis:
+    analysis_models:
+      # 表格分析模型
+      table:
+        model_name: "microsoft/table-transformer-structure-recognition"
+        model_path: "models/multimodal/table"
+      
+      # 图表分析模型  
+      chart:
+        model_name: "google/deplot"
+        model_path: "models/multimodal/chart"
+    
+    # 数据提取增强
+    data_extraction:
+      coordinate_detection: true
+      value_extraction: true
+      trend_analysis: true
+
 
 # 模型下载地址配置
 model_downloads:
